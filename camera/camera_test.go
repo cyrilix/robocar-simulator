@@ -12,44 +12,44 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 type MockPublisher struct {
-	muPubEvents     sync.Mutex
-	publishedEvents []*[]byte
+	notifyChan     chan []byte
+	initNotifyChan sync.Once
 }
 
-func (p *MockPublisher) Publish(payload *[]byte) {
-	p.muPubEvents.Lock()
-	defer p.muPubEvents.Unlock()
-	p.publishedEvents = append(p.publishedEvents, payload)
+func (p *MockPublisher) Close() error {
+	if p.notifyChan != nil {
+		close(p.notifyChan)
+	}
+	return nil
 }
 
-func (p *MockPublisher) Events() []*[]byte {
-	p.muPubEvents.Lock()
-	defer p.muPubEvents.Unlock()
-	eventsMsg := make([]*[]byte, len(p.publishedEvents), len(p.publishedEvents))
-	copy(eventsMsg, p.publishedEvents)
-	return eventsMsg
+func (p *MockPublisher) Publish(payload []byte) {
+	p.notifyChan <- payload
+}
+
+func (p *MockPublisher) Notify() <-chan []byte {
+	p.initNotifyChan.Do(func() { p.notifyChan = make(chan []byte) })
+	return p.notifyChan
 }
 
 func TestPart_ListenEvents(t *testing.T) {
-	connMock := ConnMock{}
-	err := connMock.Listen()
+	simulatorMock := SimulatorMock{}
+	err := simulatorMock.Start()
 	if err != nil {
 		t.Errorf("unable to start mock server: %v", err)
 	}
 	defer func() {
-		if err := connMock.Close(); err != nil {
+		if err := simulatorMock.Close(); err != nil {
 			t.Errorf("unable to close mock server: %v", err)
 		}
 	}()
 
+	publisher := MockPublisher{}
 
-	publisher := MockPublisher{publishedEvents: make([]*[]byte, 0)}
-
-	part := New(&publisher, connMock.Addr())
+	part := New(&publisher, simulatorMock.Addr())
 	go func() {
 		err := part.Start()
 		if err != nil {
@@ -62,25 +62,20 @@ func TestPart_ListenEvents(t *testing.T) {
 		}
 	}()
 
+	simulatorMock.WaitConnection()
+	log.Trace("read test data")
 	testContent, err := ioutil.ReadFile("testdata/msg.json")
 	lines := strings.Split(string(testContent), "\n")
 
 	for idx, line := range lines {
-		time.Sleep(5 * time.Millisecond)
-		err = connMock.WriteMsg(line)
+		err = simulatorMock.EmitMsg(line)
 		if err != nil {
 			t.Errorf("[line %v/%v] unable to write line: %v", idx+1, len(lines), err)
 		}
-	}
 
-	time.Sleep(10 * time.Millisecond)
-	expectedFrames := 16
-	if len(publisher.Events()) != expectedFrames {
-		t.Errorf("invalid number of frame emmitted: %v, wants %v", len(publisher.Events()), expectedFrames)
-	}
-	for _, byteMsg := range publisher.Events() {
+		byteMsg := <-publisher.Notify()
 		var msg events.FrameMessage
-		err = proto.Unmarshal(*byteMsg, &msg)
+		err = proto.Unmarshal(byteMsg, &msg)
 		if err != nil {
 			t.Errorf("unable to unmarshal frame msg: %v", err)
 			continue
@@ -94,57 +89,80 @@ func TestPart_ListenEvents(t *testing.T) {
 	}
 }
 
-type ConnMock struct {
-	ln     net.Listener
-	conn   net.Conn
-	muWriter sync.Mutex
-	writer *bufio.Writer
+type SimulatorMock struct {
+	ln            net.Listener
+	muConn        sync.Mutex
+	conn          net.Conn
+	writer        *bufio.Writer
+	newConnection chan net.Conn
+	logger 		  *log.Entry
 }
 
-func (c *ConnMock) WriteMsg(p string) (err error) {
-	c.muWriter.Lock()
-	defer c.muWriter.Unlock()
+func (c *SimulatorMock) EmitMsg(p string) (err error) {
+	c.muConn.Lock()
+	defer c.muConn.Unlock()
 	_, err = c.writer.WriteString(p + "\n")
 	if err != nil {
-		log.Errorf("unable to write response: %v", err)
+		c.logger.Errorf("unable to write response: %v", err)
 	}
 	if err == io.EOF {
-		log.Info("Connection closed")
+		c.logger.Info("Connection closed")
 		return err
 	}
 	err = c.writer.Flush()
 	return err
 }
 
-func (c *ConnMock) Listen() error {
-	c.muWriter.Lock()
-	defer c.muWriter.Unlock()
+func (c *SimulatorMock) WaitConnection() {
+	c.muConn.Lock()
+	defer c.muConn.Unlock()
+	c.logger.Debug("simulator waiting connection")
+	if c.conn != nil {
+		return
+	}
+	c.logger.Debug("new connection")
+	conn := <-c.newConnection
+
+	c.conn = conn
+	c.writer = bufio.NewWriter(conn)
+}
+
+func (c *SimulatorMock) Start() error {
+	c.logger = log.WithField("simulator", "mock")
+	c.newConnection = make(chan net.Conn)
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	c.ln = ln
 	if err != nil {
-
 		return fmt.Errorf("unable to listen on port: %v", err)
 	}
-
 	go func() {
 		for {
-			c.conn, err = c.ln.Accept()
+			conn, err := c.ln.Accept()
 			if err != nil && err == io.EOF {
-				log.Infof("connection close: %v", err)
+				c.logger.Errorf("connection close: %v", err)
 				break
 			}
-			c.writer = bufio.NewWriter(c.conn)
+			if c.newConnection == nil {
+				break
+			}
+			c.newConnection <- conn
 		}
 	}()
 	return nil
 }
 
-func (c *ConnMock) Addr() string {
+func (c *SimulatorMock) Addr() string {
 	return c.ln.Addr().String()
 }
 
-func (c *ConnMock) Close() error {
-	log.Infof("close mock server")
+func (c *SimulatorMock) Close() error {
+	c.logger.Debug("close mock server")
+
+	if c == nil {
+		return nil
+	}
+	close(c.newConnection)
+	c.newConnection = nil
 	err := c.ln.Close()
 	if err != nil {
 		return fmt.Errorf("unable to close mock server: %v", err)

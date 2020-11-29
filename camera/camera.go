@@ -17,28 +17,31 @@ import (
 )
 
 func New(publisher Publisher, addressSimulator string) *Gateway {
-	log.Info("run camera camera")
+	l := log.WithField("simulator", addressSimulator)
+	l.Info("run camera from simulator")
 
 	return &Gateway{
-		address:          addressSimulator,
-		publisher:        publisher,
+		address:   addressSimulator,
+		publisher: publisher,
+		log:       l,
 	}
 }
 
 /* Simulator interface to publish camera frames into mqtt topic */
 type Gateway struct {
-	cancel           chan interface{}
+	cancel chan interface{}
 
 	address string
 	conn    io.ReadCloser
 
 	publisher Publisher
+	log       *log.Entry
 }
 
 func (p *Gateway) Start() error {
-	log.Info("connect to simulator")
+	p.log.Info("connect to simulator")
 	p.cancel = make(chan interface{})
-	msgChan := make(chan *simulator.SimulatorMsg)
+	msgChan := make(chan *simulator.TelemetryMsg)
 
 	go p.run(msgChan)
 
@@ -53,17 +56,17 @@ func (p *Gateway) Start() error {
 }
 
 func (p *Gateway) Stop() {
-	log.Info("close simulator gateway")
+	p.log.Info("close simulator gateway")
 	close(p.cancel)
 
 	if err := p.Close(); err != nil {
-		log.Printf("unexpected error while simulator connection is closed: %v", err)
+		p.log.Warnf("unexpected error while simulator connection is closed: %v", err)
 	}
 }
 
 func (p *Gateway) Close() error {
 	if p.conn == nil {
-		log.Warnln("no connection to close")
+		p.log.Warn("no connection to close")
 		return nil
 	}
 	if err := p.conn.Close(); err != nil {
@@ -72,19 +75,21 @@ func (p *Gateway) Close() error {
 	return nil
 }
 
-func (p *Gateway) run(msgChan chan<- *simulator.SimulatorMsg) {
+func (p *Gateway) run(msgChan chan<- *simulator.TelemetryMsg) {
 	err := retry.Do(func() error {
+		p.log.Info("connect to simulator")
 		conn, err := connect(p.address)
 		if err != nil {
 			return fmt.Errorf("unable to connect to simulator at %v", p.address)
 		}
 		p.conn = conn
+		p.log.Info("connection success")
 		return nil
 	},
 		retry.Delay(1*time.Second),
 	)
 	if err != nil {
-		log.Panicf("unable to connect to simulator: %v", err)
+		p.log.Panicf("unable to connect to simulator: %v", err)
 	}
 
 	reader := bufio.NewReader(p.conn)
@@ -93,25 +98,25 @@ func (p *Gateway) run(msgChan chan<- *simulator.SimulatorMsg) {
 		func() error { return p.listen(msgChan, reader) },
 	)
 	if err != nil {
-		log.Errorf("unable to connect to server: %v", err)
+		p.log.Errorf("unable to connect to server: %v", err)
 	}
 }
 
-func (p *Gateway) listen(msgChan chan<- *simulator.SimulatorMsg, reader *bufio.Reader) error {
+func (p *Gateway) listen(msgChan chan<- *simulator.TelemetryMsg, reader *bufio.Reader) error {
 	for {
 		rawLine, err := reader.ReadBytes('\n')
 		if err == io.EOF {
-			log.Info("Connection closed")
+			p.log.Info("Connection closed")
 			return err
 		}
 		if err != nil {
 			return fmt.Errorf("unable to read response: %v", err)
 		}
 
-		var msg simulator.SimulatorMsg
+		var msg simulator.TelemetryMsg
 		err = json.Unmarshal(rawLine, &msg)
 		if err != nil {
-			log.Errorf("unable to unmarshal simulator msg: %v", err)
+			p.log.Errorf("unable to unmarshal simulator msg: %v", err)
 		}
 		if "telemetry" != msg.MsgType {
 			continue
@@ -120,7 +125,7 @@ func (p *Gateway) listen(msgChan chan<- *simulator.SimulatorMsg, reader *bufio.R
 	}
 }
 
-func (p *Gateway) publishFrame(msgSim *simulator.SimulatorMsg) {
+func (p *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) {
 	now := time.Now()
 	msg := &events.FrameMessage{
 		Id: &events.FrameRef{
@@ -136,9 +141,9 @@ func (p *Gateway) publishFrame(msgSim *simulator.SimulatorMsg) {
 
 	payload, err := proto.Marshal(msg)
 	if err != nil {
-		log.Errorf("unable to marshal protobuf message: %v", err)
+		p.log.Errorf("unable to marshal protobuf message: %v", err)
 	}
-	p.publisher.Publish(&payload)
+	p.publisher.Publish(payload)
 }
 
 var connect = func(address string) (io.ReadWriteCloser, error) {
@@ -150,23 +155,23 @@ var connect = func(address string) (io.ReadWriteCloser, error) {
 }
 
 type Publisher interface {
-	Publish(payload *[]byte)
+	Publish(payload []byte)
 }
 
 func NewMqttPublisher(client mqtt.Client, topic string) Publisher {
 	return &MqttPublisher{
 		client: client,
-		topic: topic,
+		topic:  topic,
 	}
 }
 
 type MqttPublisher struct {
 	client mqtt.Client
-	topic string
+	topic  string
 }
 
-func (m *MqttPublisher) Publish(payload *[]byte) {
-	token := m.client.Publish(m.topic, 0, false, *payload)
+func (m *MqttPublisher) Publish(payload []byte) {
+	token := m.client.Publish(m.topic, 0, false, payload)
 	token.WaitTimeout(10 * time.Millisecond)
 	if err := token.Error(); err != nil {
 		log.Errorf("unable to publish frame: %v", err)
