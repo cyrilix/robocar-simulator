@@ -1,15 +1,11 @@
 package gateway
 
 import (
-	"bufio"
 	"encoding/json"
-	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-	"io"
 	"io/ioutil"
-	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -61,8 +57,8 @@ func (p *MockPublisher) NotifyThrottle() <-chan []byte {
 	return p.notifyThrottleChan
 }
 
-func TestPart_ListenEvents(t *testing.T) {
-	simulatorMock := SimulatorMock{}
+func TestGateway_ListenEvents(t *testing.T) {
+	simulatorMock := Sim2GwMock{}
 	err := simulatorMock.Start()
 	if err != nil {
 		t.Errorf("unable to start mock server: %v", err)
@@ -147,7 +143,6 @@ func TestPart_ListenEvents(t *testing.T) {
 	}
 }
 
-
 func checkFrame(t *testing.T, byteMsg []byte) {
 	var msg events.FrameMessage
 	err := proto.Unmarshal(byteMsg, &msg)
@@ -176,7 +171,7 @@ func checkSteering(t *testing.T, byteMsg []byte, rawLine string) {
 		t.Errorf("unable to unmarshal steering msg: %v", err)
 	}
 
-	if msg.GetSteering() != expectedSteering{
+	if msg.GetSteering() != expectedSteering {
 		t.Errorf("invalid steering value: %f, wants %f", msg.GetSteering(), expectedSteering)
 	}
 	if msg.Confidence != 1.0 {
@@ -205,85 +200,4 @@ func checkThrottle(t *testing.T, byteMsg []byte, rawLine string) {
 	if msg.Confidence != 1.0 {
 		t.Errorf("invalid throttle confidence: %f, wants %f", msg.Confidence, 1.0)
 	}
-}
-
-type SimulatorMock struct {
-	ln            net.Listener
-	muConn        sync.Mutex
-	conn          net.Conn
-	writer        *bufio.Writer
-	newConnection chan net.Conn
-	logger        *log.Entry
-}
-
-func (c *SimulatorMock) EmitMsg(p string) (err error) {
-	c.muConn.Lock()
-	defer c.muConn.Unlock()
-	_, err = c.writer.WriteString(p + "\n")
-	if err != nil {
-		c.logger.Errorf("unable to write response: %v", err)
-	}
-	if err == io.EOF {
-		c.logger.Info("Connection closed")
-		return err
-	}
-	err = c.writer.Flush()
-	return err
-}
-
-func (c *SimulatorMock) WaitConnection() {
-	c.muConn.Lock()
-	defer c.muConn.Unlock()
-	c.logger.Debug("simulator waiting connection")
-	if c.conn != nil {
-		return
-	}
-	c.logger.Debug("new connection")
-	conn := <-c.newConnection
-
-	c.conn = conn
-	c.writer = bufio.NewWriter(conn)
-}
-
-func (c *SimulatorMock) Start() error {
-	c.logger = log.WithField("simulator", "mock")
-	c.newConnection = make(chan net.Conn)
-	ln, err := net.Listen("tcp", "127.0.0.1:")
-	c.ln = ln
-	if err != nil {
-		return fmt.Errorf("unable to listen on port: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := c.ln.Accept()
-			if err != nil && err == io.EOF {
-				c.logger.Errorf("connection close: %v", err)
-				break
-			}
-			if c.newConnection == nil {
-				break
-			}
-			c.newConnection <- conn
-		}
-	}()
-	return nil
-}
-
-func (c *SimulatorMock) Addr() string {
-	return c.ln.Addr().String()
-}
-
-func (c *SimulatorMock) Close() error {
-	c.logger.Debug("close mock server")
-
-	if c == nil {
-		return nil
-	}
-	close(c.newConnection)
-	c.newConnection = nil
-	err := c.ln.Close()
-	if err != nil {
-		return fmt.Errorf("unable to close mock server: %v", err)
-	}
-	return nil
 }

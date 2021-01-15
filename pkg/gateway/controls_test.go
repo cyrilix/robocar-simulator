@@ -1,4 +1,4 @@
-package controls
+package gateway
 
 import (
 	"bufio"
@@ -60,28 +60,30 @@ func TestGateway_WriteSteering(t *testing.T) {
 			}},
 	}
 
-	simulatorMock := ConnMock{}
+	simulatorMock := Gw2SimMock{}
 	err := simulatorMock.listen()
 	if err != nil {
-		t.Errorf("unable to start mock server: %v", err)
+		t.Errorf("unable to start mock gw: %v", err)
 	}
-	defer func(){
+	defer func() {
 		if err := simulatorMock.Close(); err != nil {
 			t.Errorf("unable to stop simulator mock: %v", err)
 		}
 	}()
 
-	server, err := New(simulatorMock.Addr())
+	gw := New(nil, simulatorMock.Addr())
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
+	go gw.Start()
+	defer gw.Close()
 
 	for _, c := range cases {
-		server.lastControl = c.previousMsg
+		gw.lastControl = c.previousMsg
 
-		server.WriteSteering(c.msg)
+		gw.WriteSteering(c.msg)
 
-		ctrlMsg := <- simulatorMock.Notify()
+		ctrlMsg := <-simulatorMock.Notify()
 		if *ctrlMsg != c.expectedMsg {
 			t.Errorf("[%v] bad messge received: %#v, wants %#v", c.name, ctrlMsg, c.expectedMsg)
 		}
@@ -177,28 +179,28 @@ func TestGateway_WriteThrottle(t *testing.T) {
 			}},
 	}
 
-	simulatorMock := ConnMock{}
+	simulatorMock := Gw2SimMock{}
 	err := simulatorMock.listen()
 	if err != nil {
-		t.Errorf("unable to start mock server: %v", err)
+		t.Errorf("unable to start mock gw: %v", err)
 	}
-	defer func(){
+	defer func() {
 		if err := simulatorMock.Close(); err != nil {
 			t.Errorf("unable to stop simulator mock: %v", err)
 		}
 	}()
 
-	server, err := New(simulatorMock.Addr())
+	gw := New(nil, simulatorMock.Addr())
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
 
 	for _, c := range cases {
-		server.lastControl = c.previousMsg
+		gw.lastControl = c.previousMsg
 
-		server.WriteThrottle(c.msg)
+		gw.WriteThrottle(c.msg)
 
-		ctrlMsg := <- simulatorMock.Notify()
+		ctrlMsg := <-simulatorMock.Notify()
 		if *ctrlMsg != c.expectedMsg {
 			t.Errorf("[%v] bad messge received: %#v, wants %#v", c.name, ctrlMsg, c.expectedMsg)
 		}

@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -32,7 +33,11 @@ type Gateway struct {
 	cancel chan interface{}
 
 	address string
-	conn    io.ReadCloser
+	muConn  sync.Mutex
+	conn    io.ReadWriteCloser
+
+	muControl   sync.Mutex
+	lastControl *simulator.ControlMsg
 
 	publisher Publisher
 	log       *log.Entry
@@ -78,18 +83,7 @@ func (p *Gateway) Close() error {
 }
 
 func (p *Gateway) run(msgChan chan<- *simulator.TelemetryMsg) {
-	err := retry.Do(func() error {
-		p.log.Info("connect to simulator")
-		conn, err := connect(p.address)
-		if err != nil {
-			return fmt.Errorf("unable to connect to simulator at %v", p.address)
-		}
-		p.conn = conn
-		p.log.Info("connection success")
-		return nil
-	},
-		retry.Delay(1*time.Second),
-	)
+	err := p.connect()
 	if err != nil {
 		p.log.Panicf("unable to connect to simulator: %v", err)
 	}
@@ -102,6 +96,29 @@ func (p *Gateway) run(msgChan chan<- *simulator.TelemetryMsg) {
 	if err != nil {
 		p.log.Errorf("unable to connect to server: %v", err)
 	}
+}
+
+func (p *Gateway) connect() error {
+	p.muConn.Lock()
+	defer p.muConn.Unlock()
+
+	if p.conn != nil {
+		// already connected
+		return nil
+	}
+	err := retry.Do(func() error {
+		p.log.Info("connect to simulator")
+		conn, err := connect(p.address)
+		if err != nil {
+			return fmt.Errorf("unable to connect to simulator at %v", p.address)
+		}
+		p.conn = conn
+		p.log.Info("connection success")
+		return nil
+	},
+		retry.Delay(1*time.Second),
+	)
+	return err
 }
 
 func (p *Gateway) listen(msgChan chan<- *simulator.TelemetryMsg, reader *bufio.Reader) error {
@@ -151,7 +168,7 @@ func (p *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) {
 
 func (p *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg) {
 	steering := &events.SteeringMessage{
-		Steering:  float32(msgSim.SteeringAngle),
+		Steering:   float32(msgSim.SteeringAngle),
 		Confidence: 1.0,
 	}
 
@@ -165,7 +182,7 @@ func (p *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg) {
 
 func (p *Gateway) publishInputThrottle(msgSim *simulator.TelemetryMsg) {
 	steering := &events.ThrottleMessage{
-		Throttle:  float32(msgSim.Throttle),
+		Throttle:   float32(msgSim.Throttle),
 		Confidence: 1.0,
 	}
 
@@ -185,6 +202,67 @@ var connect = func(address string) (io.ReadWriteCloser, error) {
 	return conn, nil
 }
 
+func (p *Gateway) WriteSteering(message *events.SteeringMessage) {
+	p.muControl.Lock()
+	defer p.muControl.Unlock()
+	p.initLastControlMsg()
+
+	p.lastControl.Steering = message.Steering
+	p.writeControlCommandToSimulator()
+}
+
+func (p *Gateway) writeControlCommandToSimulator() {
+	if err := p.connect(); err != nil {
+		p.log.Errorf("unable to connect to simulator to send control command: %v", err)
+		return
+	}
+	w := bufio.NewWriter(p.conn)
+	content, err := json.Marshal(p.lastControl)
+	if err != nil {
+		p.log.Errorf("unable to marshall control msg \"%#v\": %v", p.lastControl, err)
+		return
+	}
+
+	_, err = w.Write(append(content, '\n'))
+	if err != nil {
+		p.log.Errorf("unable to write control msg \"%#v\" to simulator: %v", p.lastControl, err)
+		return
+	}
+	err = w.Flush()
+	if err != nil {
+		p.log.Errorf("unable to flush control msg \"%#v\" to simulator: %v", p.lastControl, err)
+		return
+	}
+}
+
+func (p *Gateway) WriteThrottle(message *events.ThrottleMessage) {
+	p.muControl.Lock()
+	defer p.muControl.Unlock()
+	p.initLastControlMsg()
+
+	if message.Throttle > 0 {
+		p.lastControl.Throttle = message.Throttle
+		p.lastControl.Brake = 0.
+	} else {
+		p.lastControl.Throttle = 0.
+		p.lastControl.Brake = -1 * message.Throttle
+	}
+
+	p.writeControlCommandToSimulator()
+}
+
+func (p *Gateway) initLastControlMsg() {
+	if p.lastControl != nil {
+		return
+	}
+	p.lastControl = &simulator.ControlMsg{
+		MsgType:  "control",
+		Steering: 0.,
+		Throttle: 0.,
+		Brake:    0.,
+	}
+}
+
 type Publisher interface {
 	PublishFrame(payload []byte)
 	PublishThrottle(payload []byte)
@@ -193,16 +271,16 @@ type Publisher interface {
 
 func NewMqttPublisher(client mqtt.Client, topicFrame, topicThrottle, topicSteering string) Publisher {
 	return &MqttPublisher{
-		client:     client,
-		topicFrame: topicFrame,
+		client:        client,
+		topicFrame:    topicFrame,
 		topicSteering: topicSteering,
 		topicThrottle: topicThrottle,
 	}
 }
 
 type MqttPublisher struct {
-	client     mqtt.Client
-	topicFrame string
+	client        mqtt.Client
+	topicFrame    string
 	topicSteering string
 	topicThrottle string
 }

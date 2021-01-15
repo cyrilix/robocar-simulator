@@ -4,7 +4,7 @@ import (
 	"flag"
 	"github.com/cyrilix/robocar-base/cli"
 	"github.com/cyrilix/robocar-simulator/pkg/gateway"
-	log"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"os"
 )
 
@@ -38,7 +38,6 @@ func main() {
 		log.Fatalf("unable to connect to mqtt broker: %v", err)
 	}
 	defer client.Disconnect(10)
-
 
 	c := gateway.New(gateway.NewMqttPublisher(client, topicFrame, "", ""), address)
 	defer c.Stop()
