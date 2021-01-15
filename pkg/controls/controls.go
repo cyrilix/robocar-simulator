@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
-	"github.com/cyrilix/robocar-simulator/simulator"
+	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
