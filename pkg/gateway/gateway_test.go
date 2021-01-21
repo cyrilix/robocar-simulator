@@ -3,7 +3,6 @@ package gateway
 import (
 	"encoding/json"
 	"github.com/cyrilix/robocar-protobuf/go/events"
-	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"strings"
@@ -11,51 +10,6 @@ import (
 	"testing"
 	"time"
 )
-
-type MockPublisher struct {
-	notifyFrameChan        chan []byte
-	initNotifyFrameChan    sync.Once
-	notifySteeringChan     chan []byte
-	initNotifySteeringChan sync.Once
-	notifyThrottleChan     chan []byte
-	initNotifyThrottleChan sync.Once
-}
-
-func (p *MockPublisher) Close() error {
-	if p.notifyFrameChan != nil {
-		close(p.notifyFrameChan)
-	}
-	if p.notifyThrottleChan != nil {
-		close(p.notifyThrottleChan)
-	}
-	if p.notifySteeringChan != nil {
-		close(p.notifySteeringChan)
-	}
-	return nil
-}
-
-func (p *MockPublisher) PublishFrame(payload []byte) {
-	p.notifyFrameChan <- payload
-}
-func (p *MockPublisher) PublishSteering(payload []byte) {
-	p.notifySteeringChan <- payload
-}
-func (p *MockPublisher) PublishThrottle(payload []byte) {
-	p.notifyThrottleChan <- payload
-}
-
-func (p *MockPublisher) NotifyFrame() <-chan []byte {
-	p.initNotifyFrameChan.Do(func() { p.notifyFrameChan = make(chan []byte) })
-	return p.notifyFrameChan
-}
-func (p *MockPublisher) NotifySteering() <-chan []byte {
-	p.initNotifySteeringChan.Do(func() { p.notifySteeringChan = make(chan []byte) })
-	return p.notifySteeringChan
-}
-func (p *MockPublisher) NotifyThrottle() <-chan []byte {
-	p.initNotifyThrottleChan.Do(func() { p.notifyThrottleChan = make(chan []byte) })
-	return p.notifyThrottleChan
-}
 
 func TestGateway_ListenEvents(t *testing.T) {
 	simulatorMock := Sim2GwMock{}
@@ -69,20 +23,21 @@ func TestGateway_ListenEvents(t *testing.T) {
 		}
 	}()
 
-	publisher := MockPublisher{}
-
-	part := New(&publisher, simulatorMock.Addr())
+	gw := New(simulatorMock.Addr())
 	go func() {
-		err := part.Start()
+		err := gw.Start()
 		if err != nil {
 			t.Fatalf("unable to start gateway simulator: %v", err)
 		}
 	}()
 	defer func() {
-		if err := part.Close(); err != nil {
+		if err := gw.Close(); err != nil {
 			t.Errorf("unable to close gateway simulator: %v", err)
 		}
 	}()
+	frameChannel := gw.SubscribeFrame()
+	steeringChannel := gw.SubscribeSteering()
+	throttleChannel := gw.SubscribeThrottle()
 
 	simulatorMock.WaitConnection()
 	log.Trace("read test data")
@@ -98,7 +53,7 @@ func TestGateway_ListenEvents(t *testing.T) {
 		eventsType := map[string]bool{"frame": false, "steering": false, "throttle": false}
 		nbEventsExpected := len(eventsType)
 		wg := sync.WaitGroup{}
-		// Expect number mqtt event
+		// Expect number events event
 
 		wg.Add(nbEventsExpected)
 		finished := make(chan struct{})
@@ -110,19 +65,24 @@ func TestGateway_ListenEvents(t *testing.T) {
 		timeout := time.Tick(100 * time.Millisecond)
 
 		endLoop := false
+		var frameRef, steeringIdRef, throttleIdRef *events.FrameRef
+
 		for {
 			select {
-			case byteMsg := <-publisher.NotifyFrame():
-				checkFrame(t, byteMsg)
+			case msg := <-frameChannel:
+				checkFrame(t, msg)
 				eventsType["frame"] = true
+				frameRef = msg.Id
 				wg.Done()
-			case byteMsg := <-publisher.NotifySteering():
-				checkSteering(t, byteMsg, line)
+			case msg := <-steeringChannel:
+				checkSteering(t, msg, line)
 				eventsType["steering"] = true
+				steeringIdRef = msg.FrameRef
 				wg.Done()
-			case byteMsg := <-publisher.NotifyThrottle():
-				checkThrottle(t, byteMsg, line)
+			case msg := <-throttleChannel:
+				checkThrottle(t, msg, line)
 				eventsType["throttle"] = true
+				throttleIdRef = msg.FrameRef
 				wg.Done()
 			case <-finished:
 				log.Trace("loop ended")
@@ -132,6 +92,12 @@ func TestGateway_ListenEvents(t *testing.T) {
 				t.FailNow()
 			}
 			if endLoop {
+				if frameRef != steeringIdRef || steeringIdRef == nil {
+					t.Errorf("steering msg without frameRef '%#v', wants '%#v'", steeringIdRef, frameRef)
+				}
+				if frameRef != throttleIdRef || throttleIdRef == nil {
+					t.Errorf("throttle msg without frameRef '%#v', wants '%#v'", throttleIdRef, frameRef)
+				}
 				break
 			}
 		}
@@ -143,12 +109,7 @@ func TestGateway_ListenEvents(t *testing.T) {
 	}
 }
 
-func checkFrame(t *testing.T, byteMsg []byte) {
-	var msg events.FrameMessage
-	err := proto.Unmarshal(byteMsg, &msg)
-	if err != nil {
-		t.Errorf("unable to unmarshal frame msg: %v", err)
-	}
+func checkFrame(t *testing.T, msg *events.FrameMessage) {
 	if msg.GetId() == nil {
 		t.Error("frame msg has not Id")
 	}
@@ -156,7 +117,7 @@ func checkFrame(t *testing.T, byteMsg []byte) {
 		t.Errorf("[%v] invalid frame image: %v", msg.Id, msg.GetFrame())
 	}
 }
-func checkSteering(t *testing.T, byteMsg []byte, rawLine string) {
+func checkSteering(t *testing.T, msg *events.SteeringMessage, rawLine string) {
 	var input map[string]interface{}
 	err := json.Unmarshal([]byte(rawLine), &input)
 	if err != nil {
@@ -164,12 +125,6 @@ func checkSteering(t *testing.T, byteMsg []byte, rawLine string) {
 	}
 	steering := input["steering_angle"].(float64)
 	expectedSteering := float32(steering)
-
-	var msg events.SteeringMessage
-	err = proto.Unmarshal(byteMsg, &msg)
-	if err != nil {
-		t.Errorf("unable to unmarshal steering msg: %v", err)
-	}
 
 	if msg.GetSteering() != expectedSteering {
 		t.Errorf("invalid steering value: %f, wants %f", msg.GetSteering(), expectedSteering)
@@ -179,7 +134,7 @@ func checkSteering(t *testing.T, byteMsg []byte, rawLine string) {
 	}
 }
 
-func checkThrottle(t *testing.T, byteMsg []byte, rawLine string) {
+func checkThrottle(t *testing.T, msg *events.ThrottleMessage, rawLine string) {
 	var input map[string]interface{}
 	err := json.Unmarshal([]byte(rawLine), &input)
 	if err != nil {
@@ -188,14 +143,8 @@ func checkThrottle(t *testing.T, byteMsg []byte, rawLine string) {
 	throttle := input["throttle"].(float64)
 	expectedThrottle := float32(throttle)
 
-	var msg events.SteeringMessage
-	err = proto.Unmarshal(byteMsg, &msg)
-	if err != nil {
-		t.Errorf("unable to unmarshal throttle msg: %v", err)
-	}
-
-	if msg.GetSteering() != expectedThrottle {
-		t.Errorf("invalid throttle value: %f, wants %f", msg.GetSteering(), expectedThrottle)
+	if msg.Throttle != expectedThrottle {
+		t.Errorf("invalid throttle value: %f, wants %f", msg.Throttle, expectedThrottle)
 	}
 	if msg.Confidence != 1.0 {
 		t.Errorf("invalid throttle confidence: %f, wants %f", msg.Confidence, 1.0)

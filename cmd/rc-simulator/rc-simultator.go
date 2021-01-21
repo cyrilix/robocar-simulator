@@ -20,7 +20,7 @@ func main() {
 
 	cli.InitMqttFlags(DefaultClientId, &mqttBroker, &username, &password, &clientId, &mqttQos, &mqttRetain)
 
-	flag.StringVar(&topicFrame, "mqtt-topic-frame", os.Getenv("MQTT_TOPIC"), "Mqtt topic to publish gateway frames, use MQTT_TOPIC_FRAME if args not set")
+	flag.StringVar(&topicFrame, "events-topic-frame", os.Getenv("MQTT_TOPIC"), "Mqtt topic to events gateway frames, use MQTT_TOPIC_FRAME if args not set")
 	flag.StringVar(&address, "simulator-address", "127.0.0.1:9091", "Simulator address")
 	flag.BoolVar(&debug, "debug", false, "Debug logs")
 
@@ -35,11 +35,11 @@ func main() {
 
 	client, err := cli.Connect(mqttBroker, username, password, clientId)
 	if err != nil {
-		log.Fatalf("unable to connect to mqtt broker: %v", err)
+		log.Fatalf("unable to connect to events broker: %v", err)
 	}
 	defer client.Disconnect(10)
 
-	c := gateway.New(gateway.NewMqttPublisher(client, topicFrame, "", ""), address)
+	c := gateway.New(address)
 	defer c.Stop()
 
 	cli.HandleExit(c)

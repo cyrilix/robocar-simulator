@@ -7,8 +7,6 @@ import (
 	"github.com/avast/retry-go"
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"io"
@@ -17,18 +15,36 @@ import (
 	"time"
 )
 
-func New(publisher Publisher, addressSimulator string) *Gateway {
+type SimulatorSource interface {
+	FrameSource
+	SteeringSource
+	ThrottleSource
+}
+
+type FrameSource interface {
+	SubscribeFrame() <-chan *events.FrameMessage
+}
+type SteeringSource interface {
+	SubscribeSteering() <-chan *events.SteeringMessage
+}
+type ThrottleSource interface {
+	SubscribeThrottle() <-chan *events.ThrottleMessage
+}
+
+func New(addressSimulator string) *Gateway {
 	l := log.WithField("simulator", addressSimulator)
 	l.Info("run gateway from simulator")
 
 	return &Gateway{
-		address:   addressSimulator,
-		publisher: publisher,
-		log:       l,
+		address:             addressSimulator,
+		log:                 l,
+		frameSubscribers:    make(map[chan<- *events.FrameMessage]interface{}),
+		steeringSubscribers: make(map[chan<- *events.SteeringMessage]interface{}),
+		throttleSubscribers: make(map[chan<- *events.ThrottleMessage]interface{}),
 	}
 }
 
-/* Simulator interface to publish gateway frames into mqtt topicFrame */
+/* Simulator interface to events gateway frames into events topicFrame */
 type Gateway struct {
 	cancel chan interface{}
 
@@ -39,8 +55,11 @@ type Gateway struct {
 	muControl   sync.Mutex
 	lastControl *simulator.ControlMsg
 
-	publisher Publisher
-	log       *log.Entry
+	log *log.Entry
+
+	frameSubscribers    map[chan<- *events.FrameMessage]interface{}
+	steeringSubscribers map[chan<- *events.SteeringMessage]interface{}
+	throttleSubscribers map[chan<- *events.ThrottleMessage]interface{}
 }
 
 func (p *Gateway) Start() error {
@@ -53,9 +72,9 @@ func (p *Gateway) Start() error {
 	for {
 		select {
 		case msg := <-msgChan:
-			go p.publishFrame(msg)
-			go p.publishInputSteering(msg)
-			go p.publishInputThrottle(msg)
+			fr := p.publishFrame(msg)
+			go p.publishInputSteering(msg, fr)
+			go p.publishInputThrottle(msg, fr)
 		case <-p.cancel:
 			return nil
 		}
@@ -72,6 +91,15 @@ func (p *Gateway) Stop() {
 }
 
 func (p *Gateway) Close() error {
+	for c := range p.frameSubscribers {
+		close(c)
+	}
+	for c := range p.steeringSubscribers {
+		close(c)
+	}
+	for c := range p.throttleSubscribers {
+		close(c)
+	}
 	if p.conn == nil {
 		p.log.Warn("no connection to close")
 		return nil
@@ -144,54 +172,68 @@ func (p *Gateway) listen(msgChan chan<- *simulator.TelemetryMsg, reader *bufio.R
 	}
 }
 
-func (p *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) {
+func (p *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) *events.FrameRef {
 	now := time.Now()
-	msg := &events.FrameMessage{
-		Id: &events.FrameRef{
-			Name: "gateway",
-			Id:   fmt.Sprintf("%d%03d", now.Unix(), now.Nanosecond()/1000/1000),
-			CreatedAt: &timestamp.Timestamp{
-				Seconds: now.Unix(),
-				Nanos:   int32(now.Nanosecond()),
-			},
+	frameRef := &events.FrameRef{
+		Name: "gateway",
+		Id:   fmt.Sprintf("%d%03d", now.Unix(), now.Nanosecond()/1000/1000),
+		CreatedAt: &timestamp.Timestamp{
+			Seconds: now.Unix(),
+			Nanos:   int32(now.Nanosecond()),
 		},
+	}
+	msg := &events.FrameMessage{
+		Id:    frameRef,
 		Frame: msgSim.Image,
 	}
 
-	log.Debugf("publish frame '%v/%v'", msg.Id.Name, msg.Id.Id)
-	payload, err := proto.Marshal(msg)
-	if err != nil {
-		p.log.Errorf("unable to marshal protobuf message: %v", err)
+	log.Debugf("events frame '%v/%v'", msg.Id.Name, msg.Id.Id)
+	for fs := range p.frameSubscribers {
+		fs <- msg
 	}
-	p.publisher.PublishFrame(payload)
+	return frameRef
 }
 
-func (p *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg) {
+func (p *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg, frameRef *events.FrameRef) {
 	steering := &events.SteeringMessage{
+		FrameRef:   frameRef,
 		Steering:   float32(msgSim.SteeringAngle),
 		Confidence: 1.0,
 	}
 
-	log.Debugf("publish steering '%v'", steering.Steering)
-	payload, err := proto.Marshal(steering)
-	if err != nil {
-		p.log.Errorf("unable to marshal protobuf message: %v", err)
+	log.Debugf("events steering '%v'", steering.Steering)
+	for ss := range p.steeringSubscribers {
+		ss <- steering
 	}
-	p.publisher.PublishSteering(payload)
 }
 
-func (p *Gateway) publishInputThrottle(msgSim *simulator.TelemetryMsg) {
-	steering := &events.ThrottleMessage{
+func (p *Gateway) publishInputThrottle(msgSim *simulator.TelemetryMsg, frameRef *events.FrameRef) {
+	msg := &events.ThrottleMessage{
+		FrameRef:   frameRef,
 		Throttle:   float32(msgSim.Throttle),
 		Confidence: 1.0,
 	}
 
-	log.Debugf("publish throttle '%v'", steering.Throttle)
-	payload, err := proto.Marshal(steering)
-	if err != nil {
-		p.log.Errorf("unable to marshal protobuf message: %v", err)
+	log.Debugf("events throttle '%v'", msg.Throttle)
+	for ts := range p.throttleSubscribers {
+		ts <- msg
 	}
-	p.publisher.PublishThrottle(payload)
+}
+
+func (p *Gateway) SubscribeFrame() <-chan *events.FrameMessage {
+	frameChan := make(chan *events.FrameMessage)
+	p.frameSubscribers[frameChan] = struct{}{}
+	return frameChan
+}
+func (p *Gateway) SubscribeSteering() <-chan *events.SteeringMessage {
+	steeringChan := make(chan *events.SteeringMessage)
+	p.steeringSubscribers[steeringChan] = struct{}{}
+	return steeringChan
+}
+func (p *Gateway) SubscribeThrottle() <-chan *events.ThrottleMessage {
+	throttleChan := make(chan *events.ThrottleMessage)
+	p.throttleSubscribers[throttleChan] = struct{}{}
+	return throttleChan
 }
 
 var connect = func(address string) (io.ReadWriteCloser, error) {
@@ -261,65 +303,4 @@ func (p *Gateway) initLastControlMsg() {
 		Throttle: 0.,
 		Brake:    0.,
 	}
-}
-
-type Publisher interface {
-	PublishFrame(payload []byte)
-	PublishThrottle(payload []byte)
-	PublishSteering(payload []byte)
-}
-
-func NewMqttPublisher(client mqtt.Client, topicFrame, topicThrottle, topicSteering string) Publisher {
-	return &MqttPublisher{
-		client:        client,
-		topicFrame:    topicFrame,
-		topicSteering: topicSteering,
-		topicThrottle: topicThrottle,
-	}
-}
-
-type MqttPublisher struct {
-	client        mqtt.Client
-	topicFrame    string
-	topicSteering string
-	topicThrottle string
-}
-
-func (m *MqttPublisher) PublishThrottle(payload []byte) {
-	if m.topicThrottle == "" {
-		return
-	}
-	err := m.publish(m.topicThrottle, payload)
-	if err != nil {
-		log.Errorf("unable to publish throttle: %v", err)
-	}
-}
-
-func (m *MqttPublisher) PublishSteering(payload []byte) {
-	if m.topicSteering == "" {
-		return
-	}
-	err := m.publish(m.topicSteering, payload)
-	if err != nil {
-		log.Errorf("unable to publish steering: %v", err)
-	}
-}
-
-func (m *MqttPublisher) PublishFrame(payload []byte) {
-	if m.topicFrame == "" {
-		return
-	}
-	err := m.publish(m.topicFrame, payload)
-	if err != nil {
-		log.Errorf("unable to publish frame: %v", err)
-	}
-}
-
-func (m *MqttPublisher) publish(topic string, payload []byte) error {
-	token := m.client.Publish(topic, 0, false, payload)
-	token.WaitTimeout(10 * time.Millisecond)
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("unable to publish to topic: %v", err)
-	}
-	return nil
 }

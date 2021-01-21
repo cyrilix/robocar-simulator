@@ -1,15 +1,8 @@
 package gateway
 
 import (
-	"bufio"
-	"encoding/json"
-	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
-	log "github.com/sirupsen/logrus"
-	"io"
-	"net"
-	"sync"
 	"testing"
 )
 
@@ -71,7 +64,7 @@ func TestGateway_WriteSteering(t *testing.T) {
 		}
 	}()
 
-	gw := New(nil, simulatorMock.Addr())
+	gw := New(simulatorMock.Addr())
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
@@ -190,7 +183,7 @@ func TestGateway_WriteThrottle(t *testing.T) {
 		}
 	}()
 
-	gw := New(nil, simulatorMock.Addr())
+	gw := New(simulatorMock.Addr())
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
@@ -205,79 +198,4 @@ func TestGateway_WriteThrottle(t *testing.T) {
 			t.Errorf("[%v] bad messge received: %#v, wants %#v", c.name, ctrlMsg, c.expectedMsg)
 		}
 	}
-}
-
-type ConnMock struct {
-	initMsgsOnce sync.Once
-
-	ln             net.Listener
-	notifyChan     chan *simulator.ControlMsg
-	initNotifyChan sync.Once
-}
-
-func (c *ConnMock) Notify() <-chan *simulator.ControlMsg {
-	c.initNotifyChan.Do(func() { c.notifyChan = make(chan *simulator.ControlMsg) })
-	return c.notifyChan
-}
-
-func (c *ConnMock) listen() error {
-	ln, err := net.Listen("tcp", "127.0.0.1:")
-	c.ln = ln
-	if err != nil {
-
-		return fmt.Errorf("unable to listen on port: %v", err)
-	}
-
-	go func() {
-		for {
-			conn, err := c.ln.Accept()
-			if err != nil {
-				log.Infof("connection close: %v", err)
-				break
-			}
-			go c.handleConnection(conn)
-		}
-	}()
-	return nil
-}
-
-func (c *ConnMock) Addr() string {
-	return c.ln.Addr().String()
-}
-
-func (c *ConnMock) handleConnection(conn net.Conn) {
-	c.initNotifyChan.Do(func() { c.notifyChan = make(chan *simulator.ControlMsg) })
-	reader := bufio.NewReader(conn)
-	for {
-		rawCmd, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Info("connection closed")
-				break
-			}
-			log.Errorf("unable to read request: %v", err)
-			return
-		}
-
-		var msg simulator.ControlMsg
-		err = json.Unmarshal(rawCmd, &msg)
-		if err != nil {
-			log.Errorf("unable to unmarchal control msg \"%v\": %v", string(rawCmd), err)
-			continue
-		}
-
-		c.notifyChan <- &msg
-	}
-}
-
-func (c *ConnMock) Close() error {
-	log.Infof("close mock server")
-	err := c.ln.Close()
-	if err != nil {
-		return fmt.Errorf("unable to close mock server: %v", err)
-	}
-	if c.notifyChan != nil {
-		close(c.notifyChan)
-	}
-	return nil
 }
