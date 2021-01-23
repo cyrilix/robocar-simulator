@@ -131,6 +131,10 @@ type Publisher interface {
 	Publish(topic string, payload []byte) error
 }
 
+func NewMqttPublisher(client mqtt.Client) *MqttPublisher {
+	return &MqttPublisher{client: client}
+}
+
 type MqttPublisher struct {
 	client mqtt.Client
 }
