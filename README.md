@@ -9,7 +9,7 @@ Usage of ./rc-simulator:
   -debug
         Debug logs
   -events-topic-frame string
-        Mqtt topic to events gateway frames, use MQTT_TOPIC_FRAME if args not set
+        Mqtt topic to events gateway frames, use MQTT_TOPIC_CAMERA if args not set
   -events-topic-steering string
         Mqtt topic to events gateway steering, use MQTT_TOPIC_STEERING if args not set
   -events-topic-throttle string
