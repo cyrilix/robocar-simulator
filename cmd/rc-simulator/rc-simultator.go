@@ -25,11 +25,11 @@ func main() {
 
 	cli.InitMqttFlags(DefaultClientId, &mqttBroker, &username, &password, &clientId, &mqttQos, &mqttRetain)
 
-	flag.StringVar(&topicFrame, "events-topic-frame", os.Getenv("MQTT_TOPIC_FRAME"), "Mqtt topic to events gateway frames, use MQTT_TOPIC_FRAME if args not set")
-	flag.StringVar(&topicFrame, "events-topic-steering", os.Getenv("MQTT_TOPIC_STEERING"), "Mqtt topic to events gateway steering, use MQTT_TOPIC_STEERING if args not set")
-	flag.StringVar(&topicFrame, "events-topic-throttle", os.Getenv("MQTT_TOPIC_THROTTLE"), "Mqtt topic to events gateway throttle, use MQTT_TOPIC_THROTTLE if args not set")
-	flag.StringVar(&topicFrame, "topic-steering-ctrl", os.Getenv("MQTT_TOPIC_STEERING_CTRL"), "Mqtt topic to send steering instructions, use MQTT_TOPIC_STEERING_CTRL if args not set")
-	flag.StringVar(&topicFrame, "topic-throttle-ctrl", os.Getenv("MQTT_TOPIC_THROTTLE_CTRL"), "Mqtt topic to send throttle instructions, use MQTT_TOPIC_THROTTLE_CTRL if args not set")
+	flag.StringVar(&topicFrame, "events-topic-camera", os.Getenv("MQTT_TOPIC_CAMERA"), "Mqtt topic to events gateway frames, use MQTT_TOPIC_CAMERA if args not set")
+	flag.StringVar(&topicSteering, "events-topic-steering", os.Getenv("MQTT_TOPIC_STEERING"), "Mqtt topic to events gateway steering, use MQTT_TOPIC_STEERING if args not set")
+	flag.StringVar(&topicThrottle, "events-topic-throttle", os.Getenv("MQTT_TOPIC_THROTTLE"), "Mqtt topic to events gateway throttle, use MQTT_TOPIC_THROTTLE if args not set")
+	flag.StringVar(&topicCtrlSteering, "topic-steering-ctrl", os.Getenv("MQTT_TOPIC_STEERING_CTRL"), "Mqtt topic to send steering instructions, use MQTT_TOPIC_STEERING_CTRL if args not set")
+	flag.StringVar(&topicCtrlThrottle, "topic-throttle-ctrl", os.Getenv("MQTT_TOPIC_THROTTLE_CTRL"), "Mqtt topic to send throttle instructions, use MQTT_TOPIC_THROTTLE_CTRL if args not set")
 	flag.StringVar(&address, "simulator-address", "127.0.0.1:9091", "Simulator address")
 	flag.BoolVar(&debug, "debug", false, "Debug logs")
 
@@ -59,6 +59,7 @@ func main() {
 		topicThrottle,
 	)
 	defer msgPub.Stop()
+	msgPub.Start()
 
 	cli.HandleExit(gtw)
 
@@ -66,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to start service: %v", err)
 	}
-	msgPub.Start()
+
 
 	if topicCtrlSteering != "" {
 		log.Infof("configure mqtt route on steering command")
