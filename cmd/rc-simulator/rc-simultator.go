@@ -51,6 +51,7 @@ func main() {
 	gtw := gateway.New(address)
 	defer gtw.Stop()
 
+
 	msgPub := events.NewMsgPublisher(
 		gtw,
 		events.NewMqttPublisher(client),
@@ -63,42 +64,42 @@ func main() {
 
 	cli.HandleExit(gtw)
 
-	err = gtw.Start()
-	if err != nil {
-		log.Fatalf("unable to start service: %v", err)
-	}
-
-
 	if topicCtrlSteering != "" {
 		log.Infof("configure mqtt route on steering command")
-		client.AddRoute(topicCtrlSteering, func(client mqtt.Client, message mqtt.Message) {
+		client.Subscribe(topicCtrlSteering, byte(mqttQos), func(client mqtt.Client, message mqtt.Message) {
 			onSteeringCommand(gtw, message)
 		})
 	}
 	if topicCtrlThrottle != "" {
 		log.Infof("configure mqtt route on throttle command")
-		client.AddRoute(topicCtrlThrottle, func(client mqtt.Client, message mqtt.Message) {
+		client.Subscribe(topicCtrlThrottle, byte(mqttQos), func(client mqtt.Client, message mqtt.Message) {
 			onThrottleCommand(gtw, message)
 		})
 	}
+
+	err = gtw.Start()
+	if err != nil {
+		log.Fatalf("unable to start service: %v", err)
+	}
+
 }
 
 func onSteeringCommand(c *gateway.Gateway, message mqtt.Message) {
-	var steeringMsg *events2.SteeringMessage
-	err := proto.Unmarshal(message.Payload(), steeringMsg)
+	var steeringMsg events2.SteeringMessage
+	err := proto.Unmarshal(message.Payload(), &steeringMsg)
 	if err != nil {
 		log.Errorf("unable to unmarshal steering msg: %v", err)
 		return
 	}
-	c.WriteSteering(steeringMsg)
+	c.WriteSteering(&steeringMsg)
 }
 
 func onThrottleCommand(c *gateway.Gateway, message mqtt.Message) {
-	var throttleMsg *events2.ThrottleMessage
-	err := proto.Unmarshal(message.Payload(), throttleMsg)
+	var throttleMsg events2.ThrottleMessage
+	err := proto.Unmarshal(message.Payload(), &throttleMsg)
 	if err != nil {
 		log.Errorf("unable to unmarshal throttle msg: %v", err)
 		return
 	}
-	c.WriteThrottle(throttleMsg)
+	c.WriteThrottle(&throttleMsg)
 }

@@ -253,7 +253,7 @@ func (g *Gateway) WriteSteering(message *events.SteeringMessage) {
 	defer g.muControl.Unlock()
 	g.initLastControlMsg()
 
-	g.lastControl.Steering = message.Steering
+	g.lastControl.Steering = fmt.Sprintf("%.2f", message.Steering)
 	g.writeControlCommandToSimulator()
 }
 
@@ -262,6 +262,7 @@ func (g *Gateway) writeControlCommandToSimulator() {
 		g.log.Errorf("unable to connect to simulator to send control command: %v", err)
 		return
 	}
+	log.Debugf("write command to simulator: %v", g.lastControl)
 	w := bufio.NewWriter(g.conn)
 	content, err := json.Marshal(g.lastControl)
 	if err != nil {
@@ -287,11 +288,11 @@ func (g *Gateway) WriteThrottle(message *events.ThrottleMessage) {
 	g.initLastControlMsg()
 
 	if message.Throttle > 0 {
-		g.lastControl.Throttle = message.Throttle
-		g.lastControl.Brake = 0.
+		g.lastControl.Throttle = fmt.Sprintf("%.2f", message.Throttle)
+		g.lastControl.Brake = "0.0"
 	} else {
-		g.lastControl.Throttle = 0.
-		g.lastControl.Brake = -1 * message.Throttle
+		g.lastControl.Throttle = "0.0"
+		g.lastControl.Brake = fmt.Sprintf("%.2f", -1 * message.Throttle)
 	}
 
 	g.writeControlCommandToSimulator()
@@ -303,8 +304,8 @@ func (g *Gateway) initLastControlMsg() {
 	}
 	g.lastControl = &simulator.ControlMsg{
 		MsgType:  "control",
-		Steering: 0.,
-		Throttle: 0.,
-		Brake:    0.,
+		Steering: "0.0",
+		Throttle: "0.0",
+		Brake:    "0.0",
 	}
 }
