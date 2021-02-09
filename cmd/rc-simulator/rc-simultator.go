@@ -6,6 +6,7 @@ import (
 	events2 "github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/events"
 	"github.com/cyrilix/robocar-simulator/pkg/gateway"
+	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -48,7 +49,15 @@ func main() {
 	}
 	defer client.Disconnect(10)
 
-	gtw := gateway.New(address)
+	carConfig := simulator.CarConfigMsg{
+		MsgType:   simulator.MsgTypeCarConfig,
+		BodyStyle: simulator.CarConfigBodyStyleDonkey,
+		BodyR:     "0",
+		BodyG:     "0",
+		BodyB:     "255",
+		FontSize:  "0",
+	}
+	gtw := gateway.New(address, &carConfig)
 	defer gtw.Stop()
 
 
