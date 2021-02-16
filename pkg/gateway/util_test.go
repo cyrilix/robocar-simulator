@@ -12,16 +12,31 @@ import (
 )
 
 type Gw2SimMock struct {
-	initMsgsOnce sync.Once
+	initOnce sync.Once
 
 	ln             net.Listener
-	notifyChan     chan *simulator.ControlMsg
-	initNotifyChan sync.Once
+	notifyCtrlChan chan *simulator.ControlMsg
+	notifyCarChan chan *simulator.CarConfigMsg
+	notifyCamChan chan *simulator.CamConfigMsg
 }
 
-func (c *Gw2SimMock) Notify() <-chan *simulator.ControlMsg {
-	c.initNotifyChan.Do(func() { c.notifyChan = make(chan *simulator.ControlMsg) })
-	return c.notifyChan
+func (c *Gw2SimMock) init(){
+	c.notifyCtrlChan = make(chan *simulator.ControlMsg)
+	c.notifyCarChan = make(chan *simulator.CarConfigMsg)
+	c.notifyCamChan = make(chan *simulator.CamConfigMsg)
+}
+
+func (c *Gw2SimMock) NotifyCtrl() <-chan *simulator.ControlMsg {
+	c.initOnce.Do(c.init)
+	return c.notifyCtrlChan
+}
+func (c *Gw2SimMock) NotifyCar() <-chan *simulator.CarConfigMsg {
+	c.initOnce.Do(c.init)
+	return c.notifyCarChan
+}
+func (c *Gw2SimMock) NotifyCamera() <-chan *simulator.CamConfigMsg {
+	c.initOnce.Do(c.init)
+	return c.notifyCamChan
 }
 
 func (c *Gw2SimMock) listen() error {
@@ -50,10 +65,12 @@ func (c *Gw2SimMock) Addr() string {
 }
 
 func (c *Gw2SimMock) handleConnection(conn net.Conn) {
-	c.initNotifyChan.Do(func() { c.notifyChan = make(chan *simulator.ControlMsg) })
+	c.initOnce.Do(c.init)
 	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+
 	for {
-		rawCmd, err := reader.ReadBytes('\n')
+		rawMsg, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
 				log.Debug("connection closed")
@@ -62,15 +79,54 @@ func (c *Gw2SimMock) handleConnection(conn net.Conn) {
 			log.Errorf("unable to read request: %v", err)
 			return
 		}
-
-		var msg simulator.ControlMsg
-		err = json.Unmarshal(rawCmd, &msg)
+		var msg simulator.Msg
+		err = json.Unmarshal(rawMsg, &msg)
 		if err != nil {
-			log.Errorf("unable to unmarchal control msg \"%v\": %v", string(rawCmd), err)
+			log.Errorf("unable to unmarshal msg \"%v\": %v", string(rawMsg), err)
 			continue
 		}
-
-		c.notifyChan <- &msg
+		switch msg.MsgType {
+		case simulator.MsgTypeControl:
+			var msgControl simulator.ControlMsg
+			err = json.Unmarshal(rawMsg, &msgControl)
+			if err != nil {
+				log.Errorf("unable to unmarshal control msg \"%v\": %v", string(rawMsg), err)
+				continue
+			}
+			c.notifyCtrlChan <- &msgControl
+		case simulator.MsgTypeCarConfig:
+			var msgCar simulator.CarConfigMsg
+			err = json.Unmarshal(rawMsg, &msgCar)
+			if err != nil {
+				log.Errorf("unable to unmarshal car msg \"%v\": %v", string(rawMsg), err)
+				continue
+			}
+			c.notifyCarChan <- &msgCar
+			carLoadedMsg := simulator.Msg{MsgType: simulator.MsgTypeCarLoaded}
+			resp, err := json.Marshal(&carLoadedMsg)
+			if err != nil {
+				log.Errorf("unable to generate car loaded response: %v", err)
+				continue
+			}
+			_, err = writer.WriteString(string(resp) + "\n")
+			if err != nil {
+				log.Errorf("unable to write car loaded response: %v", err)
+				continue
+			}
+			err = writer.Flush()
+			if err != nil {
+				log.Errorf("unable to flush car loaded response: %v", err)
+				continue
+			}
+		case simulator.MsgTypeCameraConfig:
+			var msgCam simulator.CamConfigMsg
+			err = json.Unmarshal(rawMsg, &msgCam)
+			if err != nil {
+				log.Errorf("unable to unmarshal camera msg \"%v\": %v", string(rawMsg), err)
+				continue
+			}
+			c.notifyCamChan <- &msgCam
+		}
 	}
 }
 
@@ -80,8 +136,14 @@ func (c *Gw2SimMock) Close() error {
 	if err != nil {
 		return fmt.Errorf("unable to close mock server: %v", err)
 	}
-	if c.notifyChan != nil {
-		close(c.notifyChan)
+	if c.notifyCtrlChan != nil {
+		close(c.notifyCtrlChan)
+	}
+	if c.notifyCarChan != nil {
+		close(c.notifyCarChan)
+	}
+	if c.notifyCamChan != nil {
+		close(c.notifyCamChan)
 	}
 	return nil
 }

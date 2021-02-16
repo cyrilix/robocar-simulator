@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
+	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"strings"
@@ -23,7 +25,11 @@ func TestGateway_ListenEvents(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr())
+	gw := New(simulatorMock.Addr(),
+		&simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
+		&simulator.RacerBioMsg{},
+		&simulator.CamConfigMsg{},
+	)
 	go func() {
 		err := gw.Start()
 		if err != nil {
@@ -40,6 +46,8 @@ func TestGateway_ListenEvents(t *testing.T) {
 	throttleChannel := gw.SubscribeThrottle()
 
 	simulatorMock.WaitConnection()
+	simulatorMock.EmitMsg(fmt.Sprintf("{\"msg_type\": \"%s\"}", simulator.MsgTypeCarLoaded))
+
 	log.Trace("read test data")
 	testContent, err := ioutil.ReadFile("testdata/msg.json")
 	lines := strings.Split(string(testContent), "\n")

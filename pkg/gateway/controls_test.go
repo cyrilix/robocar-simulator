@@ -4,7 +4,73 @@ import (
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	"testing"
+	"time"
 )
+
+
+func TestGateway_Start(t *testing.T) {
+
+	simulatorMock := Gw2SimMock{}
+	err := simulatorMock.listen()
+	if err != nil {
+		t.Errorf("unable to start mock gw: %v", err)
+	}
+	defer func() {
+		if err := simulatorMock.Close(); err != nil {
+			t.Errorf("unable to stop simulator mock: %v", err)
+		}
+	}()
+
+	carConfig := simulator.CarConfigMsg{
+		MsgType:   simulator.MsgTypeCarConfig,
+		BodyStyle: simulator.CarConfigBodyStyleCar01,
+		CarName:   "car-test",
+	}
+	camConfig :=simulator.CamConfigMsg{
+		MsgType:  simulator.MsgTypeCameraConfig,
+		Fov:      "0",
+		FishEyeX: "0",
+		FishEyeY: "0",
+		ImgW:     "120",
+		ImgH:     "50",
+		ImgD:     "0",
+		ImgEnc:   simulator.CameraImageEncJpeg,
+		OffsetX:  "0",
+		OffsetY:  "0",
+		OffsetZ:  "0",
+		RotX:     "0",
+	}
+	gw := New(simulatorMock.Addr(),
+		&carConfig,
+		&simulator.RacerBioMsg{},
+		&camConfig,
+	)
+	if err != nil {
+		t.Fatalf("unable to init simulator gateway: %v", err)
+	}
+	go gw.Start()
+	defer gw.Close()
+
+	carNotify := simulatorMock.NotifyCar()
+	select {
+	case <- time.Tick(500 * time.Millisecond):
+		t.Errorf("a car configuration message should be send")
+	case msg := <-carNotify:
+		if *msg != carConfig {
+			t.Errorf("[carConfig] invalid car config: %v, wants %v", &msg, carConfig)
+		}
+	}
+	camNotify := simulatorMock.NotifyCamera()
+	select {
+	case <- time.Tick(500 * time.Millisecond):
+		t.Errorf("a camera configuration message should be send")
+	case msg := <-camNotify:
+		if *msg != camConfig {
+			t.Errorf("[carConfig] invalid camera config: %v, wants %v", &msg, camConfig)
+		}
+	}
+
+}
 
 func TestGateway_WriteSteering(t *testing.T) {
 
@@ -64,19 +130,24 @@ func TestGateway_WriteSteering(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr())
+	gw := New(simulatorMock.Addr(),
+		&simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
+		&simulator.RacerBioMsg{},
+		&simulator.CamConfigMsg{})
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
-	go gw.Start()
-	defer gw.Close()
+	//go gw.Start()
+	//defer gw.Close()
+	//<- simulatorMock.NotifyCar()
+	//<- simulatorMock.NotifyCamera()
 
 	for _, c := range cases {
 		gw.lastControl = c.previousMsg
 
 		gw.WriteSteering(c.msg)
 
-		ctrlMsg := <-simulatorMock.Notify()
+		ctrlMsg := <-simulatorMock.NotifyCtrl()
 		if *ctrlMsg != c.expectedMsg {
 			t.Errorf("[%v] bad messge received: %#v, wants %#v", c.name, ctrlMsg, c.expectedMsg)
 		}
@@ -183,17 +254,21 @@ func TestGateway_WriteThrottle(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr())
-	if err != nil {
-		t.Fatalf("unable to init simulator gateway: %v", err)
-	}
+	gw := New(simulatorMock.Addr(), &simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
+		&simulator.RacerBioMsg{},
+		&simulator.CamConfigMsg{})
+
+	//go gw.Start()
+
+	//<- simulatorMock.NotifyCar()
+	//<- simulatorMock.NotifyCamera()
 
 	for _, c := range cases {
 		gw.lastControl = c.previousMsg
 
 		gw.WriteThrottle(c.msg)
 
-		ctrlMsg := <-simulatorMock.Notify()
+		ctrlMsg := <-simulatorMock.NotifyCtrl()
 		if *ctrlMsg != c.expectedMsg {
 			t.Errorf("[%v] bad messge received: %#v, wants %#v", c.name, ctrlMsg, c.expectedMsg)
 		}

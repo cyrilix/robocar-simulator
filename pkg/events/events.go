@@ -111,6 +111,10 @@ func (m *MsgPublisher) listenFrame() {
 	msgChan := m.srcEvents.SubscribeFrame()
 	for {
 		msg := <-msgChan
+		if msg == nil {
+			// channel closed
+			break
+		}
 		logr.Debugf("new frame %v", msg.Id)
 		if m.topicFrame == "" {
 			return

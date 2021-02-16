@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/cyrilix/robocar-base/cli"
 	events2 "github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/events"
@@ -11,6 +12,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"os"
+	"strconv"
+	"strings"
 )
 
 const DefaultClientId = "robocar-simulator"
@@ -34,6 +37,40 @@ func main() {
 	flag.StringVar(&address, "simulator-address", "127.0.0.1:9091", "Simulator address")
 	flag.BoolVar(&debug, "debug", false, "Debug logs")
 
+	var carName, carStyle, carColor string
+	var carFontSize int
+	carStyles := []string{
+		string(simulator.CarConfigBodyStyleDonkey),
+		string(simulator.CarConfigBodyStyleBare),
+		string(simulator.CarConfigBodyStyleCar01),
+	}
+	flag.StringVar(&carName, "car-name", "simulator-gateway", "Car name to display")
+	flag.StringVar(&carStyle, "car-style", string(simulator.CarConfigBodyStyleDonkey), fmt.Sprintf("Car style, only %s", strings.Join(carStyles, ",")))
+	flag.StringVar(&carColor, "car-color", "0,0,0", "Color car as rgb value")
+	flag.IntVar(&carFontSize, "car-font-size", 0, "Car font size")
+
+	var racerName, racerBio, racerCountry,  racerGuid string
+	flag.StringVar(&racerName, "racer-name", "", "")
+	flag.StringVar(&racerBio, "racer-bio",      "", "")
+	flag.StringVar(&racerCountry, "racer-country",   "", "")
+	flag.StringVar(&racerGuid, "racer-guid",     "", "")
+
+	var cameraFov, cameraImgW, cameraImgH, cameraImgD int
+	var cameraFishEyeX, cameraFishEyeY float64
+	var cameraOffsetX, cameraOffsetY, cameraOffsetZ, cameraRotX float64
+	var cameraImgEnc string
+	flag.IntVar(&cameraFov, "camera-fov", 90, "")
+	flag.Float64Var(&cameraFishEyeX, "camera-fish-eye-x", 0.4, "")
+	flag.Float64Var(&cameraFishEyeY, "camera-fish-eye-y", 0.7, "")
+	flag.IntVar(&cameraImgW, "camera-img-w", 160, "image width")
+	flag.IntVar(&cameraImgH, "camera-img-h", 120, "image height")
+	flag.IntVar(&cameraImgD, "camera-img-d", 3, "Image depth")
+	flag.StringVar(&cameraImgEnc, "camera-img-enc", string(simulator.CameraImageEncJpeg), "")
+	flag.Float64Var(&cameraOffsetX, "camera-offset-x", 0, "moves camera left/right")
+	flag.Float64Var(&cameraOffsetY, "camera-offset-y", 1.120395, "moves camera up/down")
+	flag.Float64Var(&cameraOffsetZ, "camera-offset-z", 0.5528488, "moves camera forward/back")
+	flag.Float64Var(&cameraRotX, "camera-rot-x", 15.0, "rotate the camera")
+
 	flag.Parse()
 	if len(os.Args) <= 1 {
 		flag.PrintDefaults()
@@ -49,17 +86,40 @@ func main() {
 	}
 	defer client.Disconnect(10)
 
+	bodyColors := strings.Split(carColor, ",")
 	carConfig := simulator.CarConfigMsg{
 		MsgType:   simulator.MsgTypeCarConfig,
-		BodyStyle: simulator.CarConfigBodyStyleDonkey,
-		BodyR:     "0",
-		BodyG:     "0",
-		BodyB:     "255",
-		FontSize:  "0",
+		BodyStyle: simulator.CarStyle(carStyle),
+		BodyR:     bodyColors[0],
+		BodyG:     bodyColors[1],
+		BodyB:     bodyColors[2],
+		CarName:   carName,
+		FontSize:  strconv.Itoa(carFontSize),
 	}
-	gtw := gateway.New(address, &carConfig)
+	racer := simulator.RacerBioMsg{
+		MsgType:   simulator.MsgTypeRacerInfo,
+		RacerName: racerName,
+		CarName:   carName,
+		Bio:       racerBio,
+		Country:   racerCountry,
+		Guid:      racerGuid,
+	}
+	camera := simulator.CamConfigMsg{
+		MsgType:  simulator.MsgTypeCameraConfig,
+		Fov:      strconv.Itoa(cameraFov),
+		FishEyeX: fmt.Sprintf("%f", cameraFishEyeX),
+		FishEyeY: fmt.Sprintf("%f",cameraFishEyeY),
+		ImgW:     strconv.Itoa(cameraImgW),
+		ImgH:     strconv.Itoa(cameraImgH),
+		ImgD:     strconv.Itoa(cameraImgD),
+		ImgEnc:   simulator.CameraImageEnc(cameraImgEnc),
+		OffsetX:  fmt.Sprintf("%f",cameraOffsetX),
+		OffsetY: fmt.Sprintf("%f", cameraOffsetY),
+		OffsetZ: fmt.Sprintf("%f", cameraOffsetZ),
+		RotX:    fmt.Sprintf("%f", cameraOffsetZ),
+	}
+	gtw := gateway.New(address, &carConfig, &racer, &camera)
 	defer gtw.Stop()
-
 
 	msgPub := events.NewMsgPublisher(
 		gtw,
