@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -50,7 +49,11 @@ type OnConnectHandler func(Client)
 // the initial connection is lost
 type ReconnectHandler func(Client, *ClientOptions)
 
-// ClientOptions contains configurable options for an Client.
+// ConnectionAttemptHandler is invoked prior to making the initial connection.
+type ConnectionAttemptHandler func(broker *url.URL, tlsCfg *tls.Config) *tls.Config
+
+// ClientOptions contains configurable options for an Client. Note that these should be set using the
+// relevant methods (e.g. AddBroker) rather than directly. See those functions for information on usage.
 type ClientOptions struct {
 	Servers                 []*url.URL
 	ClientID                string
@@ -79,6 +82,7 @@ type ClientOptions struct {
 	OnConnect               OnConnectHandler
 	OnConnectionLost        ConnectionLostHandler
 	OnReconnecting          ReconnectHandler
+	OnConnectAttempt        ConnectionAttemptHandler
 	WriteTimeout            time.Duration
 	MessageChannelDepth     uint
 	ResumeSubs              bool
@@ -90,7 +94,7 @@ type ClientOptions struct {
 // default values.
 //   Port: 1883
 //   CleanSession: True
-//   Order: True
+//   Order: True (note: it is recommended that this be set to FALSE unless order is important)
 //   KeepAlive: 30 (seconds)
 //   ConnectTimeout: 30 (seconds)
 //   MaxReconnectInterval 10 (minutes)
@@ -120,6 +124,7 @@ func NewClientOptions() *ClientOptions {
 		Store:                   nil,
 		OnConnect:               nil,
 		OnConnectionLost:        DefaultConnectionLostHandler,
+		OnConnectAttempt:        nil,
 		WriteTimeout:            0, // 0 represents timeout disabled
 		ResumeSubs:              false,
 		HTTPHeaders:             make(map[string][]string),
@@ -137,14 +142,12 @@ func NewClientOptions() *ClientOptions {
 //
 // An example broker URI would look like: tcp://foobar.com:1883
 func (o *ClientOptions) AddBroker(server string) *ClientOptions {
-	re := regexp.MustCompile(`%(25)?`)
 	if len(server) > 0 && server[0] == ':' {
 		server = "127.0.0.1" + server
 	}
 	if !strings.Contains(server, "://") {
 		server = "tcp://" + server
 	}
-	server = re.ReplaceAllLiteralString(server, "%25")
 	brokerURI, err := url.Parse(server)
 	if err != nil {
 		ERROR.Println(CLI, "Failed to parse %q broker address: %s", server, err)
@@ -206,10 +209,13 @@ func (o *ClientOptions) SetCleanSession(clean bool) *ClientOptions {
 }
 
 // SetOrderMatters will set the message routing to guarantee order within
-// each QoS level. By default, this value is true. If set to false,
+// each QoS level. By default, this value is true. If set to false (recommended),
 // this flag indicates that messages can be delivered asynchronously
 // from the client to the application and possibly arrive out of order.
 // Specifically, the message handler is called in its own go routine.
+// Note that setting this to true does not guarantee in-order delivery
+// (this is subject to broker settings like "max_inflight_messages=1" in mosquitto)
+// and if true then handlers must not block.
 func (o *ClientOptions) SetOrderMatters(order bool) *ClientOptions {
 	o.Order = order
 	return o
@@ -289,6 +295,11 @@ func (o *ClientOptions) SetBinaryWill(topic string, payload []byte, qos byte, re
 
 // SetDefaultPublishHandler sets the MessageHandler that will be called when a message
 // is received that does not match any known subscriptions.
+//
+// If OrderMatters is true (the defaultHandler) then callback must not block or
+// call functions within this package that may block (e.g. Publish) other than in
+// a new go routine.
+// defaultHandler must be safe for concurrent use by multiple goroutines.
 func (o *ClientOptions) SetDefaultPublishHandler(defaultHandler MessageHandler) *ClientOptions {
 	o.DefaultPublishHandler = defaultHandler
 	return o
@@ -312,6 +323,15 @@ func (o *ClientOptions) SetConnectionLostHandler(onLost ConnectionLostHandler) *
 // to the client attempting a reconnect to the MQTT broker.
 func (o *ClientOptions) SetReconnectingHandler(cb ReconnectHandler) *ClientOptions {
 	o.OnReconnecting = cb
+	return o
+}
+
+// SetConnectionAttemptHandler sets the ConnectionAttemptHandler callback to be executed prior
+// to each attempt to connect to an MQTT broker. Returns the *tls.Config that will be used when establishing
+// the connection (a copy of the tls.Config from ClientOptions will be passed in along with the broker URL).
+// This allows connection specific changes to be made to the *tls.Config.
+func (o *ClientOptions) SetConnectionAttemptHandler(onConnectAttempt ConnectionAttemptHandler) *ClientOptions {
+	o.OnConnectAttempt = onConnectAttempt
 	return o
 }
 
