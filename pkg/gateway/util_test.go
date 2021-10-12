@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"io"
 	"net"
 	"sync"
@@ -51,7 +51,7 @@ func (c *Gw2SimMock) listen() error {
 		for {
 			conn, err := c.ln.Accept()
 			if err != nil {
-				log.Debugf("connection close: %v", err)
+				zap.S().Debugf("connection close: %v", err)
 				break
 			}
 			go c.handleConnection(conn)
@@ -65,6 +65,7 @@ func (c *Gw2SimMock) Addr() string {
 }
 
 func (c *Gw2SimMock) handleConnection(conn net.Conn) {
+	log := zap.S()
 	c.initOnce.Do(c.init)
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -131,7 +132,7 @@ func (c *Gw2SimMock) handleConnection(conn net.Conn) {
 }
 
 func (c *Gw2SimMock) Close() error {
-	log.Debugf("close mock server")
+	zap.S().Debugf("close mock server")
 	err := c.ln.Close()
 	if err != nil {
 		return fmt.Errorf("unable to close mock server: %v", err)
@@ -154,7 +155,7 @@ type Sim2GwMock struct {
 	conn          net.Conn
 	writer        *bufio.Writer
 	newConnection chan net.Conn
-	logger        *log.Entry
+	logger        *zap.SugaredLogger
 }
 
 func (c *Sim2GwMock) EmitMsg(p string) (err error) {
@@ -187,7 +188,7 @@ func (c *Sim2GwMock) WaitConnection() {
 }
 
 func (c *Sim2GwMock) Start() error {
-	c.logger = log.WithField("simulator", "mock")
+	c.logger = zap.S().With("simulator", "mock")
 	c.newConnection = make(chan net.Conn)
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	c.ln = ln

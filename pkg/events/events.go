@@ -5,9 +5,9 @@ import (
 	"github.com/cyrilix/robocar-simulator/pkg/gateway"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/golang/protobuf/proto"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
+	"go.uber.org/zap"
 )
 
 func NewMsgPublisher(srcEvents gateway.SimulatorSource, p Publisher, topicFrame, topicSteering, topicThrottle string) *MsgPublisher {
@@ -59,7 +59,7 @@ func (m *MsgPublisher) Stop() {
 }
 
 func (m *MsgPublisher) listenThrottle() {
-	logr := log.WithField("msg_type", "throttleChan")
+	logr := zap.S().With("msg_type", "throttleChan")
 	msgChan := m.srcEvents.SubscribeThrottle()
 	for {
 		select {
@@ -83,7 +83,7 @@ func (m *MsgPublisher) listenThrottle() {
 }
 
 func (m *MsgPublisher) listenSteering() {
-	logr := log.WithField("msg_type", "steeringChan")
+	logr := zap.S().With("msg_type", "steeringChan")
 	msgChan := m.srcEvents.SubscribeSteering()
 	for {
 		select {
@@ -107,7 +107,7 @@ func (m *MsgPublisher) listenSteering() {
 }
 
 func (m *MsgPublisher) listenFrame() {
-	logr := log.WithField("msg_type", "frame")
+	logr := zap.S().With("msg_type", "frame")
 	msgChan := m.srcEvents.SubscribeFrame()
 	for {
 		msg := <-msgChan

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"strings"
 	"sync"
@@ -48,7 +48,7 @@ func TestGateway_ListenEvents(t *testing.T) {
 	simulatorMock.WaitConnection()
 	simulatorMock.EmitMsg(fmt.Sprintf("{\"msg_type\": \"%s\"}", simulator.MsgTypeCarLoaded))
 
-	log.Trace("read test data")
+	zap.S().Debug("read test data")
 	testContent, err := ioutil.ReadFile("testdata/msg.json")
 	lines := strings.Split(string(testContent), "\n")
 
@@ -93,7 +93,7 @@ func TestGateway_ListenEvents(t *testing.T) {
 				throttleIdRef = msg.FrameRef
 				wg.Done()
 			case <-finished:
-				log.Trace("loop ended")
+				zap.S().Debugf("loop ended")
 				endLoop = true
 			case <-timeout:
 				t.Errorf("not all event are published")

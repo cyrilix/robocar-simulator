@@ -29,7 +29,7 @@ type TelemetryMsg struct {
 	Cte           float64 `json:"cte"`
 }
 
-/* Json msg used to control cars. MsgType must be filled with "control" */
+// ControlMsg is json msg used to control cars. MsgType must be filled with "control"
 type ControlMsg struct {
 	MsgType  MsgType `json:"msg_type"`
 	Steering string  `json:"steering"`

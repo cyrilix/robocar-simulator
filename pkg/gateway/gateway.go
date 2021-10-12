@@ -8,7 +8,7 @@ import (
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	"github.com/golang/protobuf/ptypes/timestamp"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"io"
 	"net"
 	"sync"
@@ -32,7 +32,7 @@ type ThrottleSource interface {
 }
 
 func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.RacerBioMsg, camera *simulator.CamConfigMsg) *Gateway {
-	l := log.WithField("simulator", addressSimulator)
+	l := zap.S().With("simulator", addressSimulator)
 	l.Info("run gateway from simulator")
 
 	return &Gateway{
@@ -51,7 +51,7 @@ func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.
 	}
 }
 
-/* Simulator interface to events gateway frames into events topicFrame */
+// Gateway is Simulator interface to events gateway frames into events topicFrame
 type Gateway struct {
 	cancel chan interface{}
 
@@ -64,7 +64,7 @@ type Gateway struct {
 	muControl   sync.Mutex
 	lastControl *simulator.ControlMsg
 
-	log *log.Entry
+	log *zap.SugaredLogger
 
 	frameSubscribers    map[chan<- *events.FrameMessage]interface{}
 	steeringSubscribers map[chan<- *events.SteeringMessage]interface{}
@@ -205,7 +205,7 @@ func (g *Gateway) listen() error {
 		case simulator.MsgTypeRacerInfo:
 			g.broadcastRacerMsg(rawLine)
 		default:
-			log.Warnf("unmanaged simulator message: %v", string(rawLine))
+			g.log.Warnf("unmanaged simulator message: %v", string(rawLine))
 		}
 	}
 }
@@ -269,7 +269,7 @@ func (g *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) *events.FrameRef 
 		Frame: msgSim.Image,
 	}
 
-	log.Debugf("events frame '%v/%v'", msg.Id.Name, msg.Id.Id)
+	g.log.Debugf("events frame '%v/%v'", msg.Id.Name, msg.Id.Id)
 
 	for fs := range g.frameSubscribers {
 		fs <- msg
@@ -284,7 +284,7 @@ func (g *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg, frameRef 
 		Confidence: 1.0,
 	}
 
-	log.Debugf("events steering '%v'", steering.Steering)
+	g.log.Debugf("events steering '%v'", steering.Steering)
 	for ss := range g.steeringSubscribers {
 		ss <- steering
 	}
@@ -297,7 +297,7 @@ func (g *Gateway) publishInputThrottle(msgSim *simulator.TelemetryMsg, frameRef 
 		Confidence: 1.0,
 	}
 
-	log.Debugf("events throttle '%v'", msg.Throttle)
+	g.log.Debugf("events throttle '%v'", msg.Throttle)
 	for ts := range g.throttleSubscribers {
 		ts <- msg
 	}
@@ -398,7 +398,7 @@ func (g *Gateway) writeCommand(content []byte) error {
 		g.log.Errorf("unable to connect to simulator to send control command: %v", err)
 		return nil
 	}
-	log.Debugf("write command to simulator: %v", string(content))
+	g.log.Debugf("write command to simulator: %v", string(content))
 	w := bufio.NewWriter(g.conn)
 
 	_, err := w.Write(append(content, '\n'))

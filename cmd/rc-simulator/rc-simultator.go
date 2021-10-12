@@ -10,7 +10,8 @@ import (
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/golang/protobuf/proto"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -76,13 +77,27 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
+
+	config := zap.NewDevelopmentConfig()
 	if debug {
-		log.SetLevel(log.DebugLevel)
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	} else {
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	}
+	lgr, err := config.Build()
+	if err != nil {
+		log.Fatalf("unable to init logger: %v", err)
+	}
+	defer func() {
+		if err := lgr.Sync(); err != nil {
+			log.Printf("unable to Sync logger: %v\n", err)
+		}
+	}()
+	zap.ReplaceGlobals(lgr)
 
 	client, err := cli.Connect(mqttBroker, username, password, clientId)
 	if err != nil {
-		log.Fatalf("unable to connect to events broker: %v", err)
+		zap.S().Fatalf("unable to connect to events broker: %v", err)
 	}
 	defer client.Disconnect(10)
 
@@ -134,13 +149,13 @@ func main() {
 	cli.HandleExit(gtw)
 
 	if topicCtrlSteering != "" {
-		log.Infof("configure mqtt route on steering command")
+		zap.S().Info("configure mqtt route on steering command")
 		client.Subscribe(topicCtrlSteering, byte(mqttQos), func(client mqtt.Client, message mqtt.Message) {
 			onSteeringCommand(gtw, message)
 		})
 	}
 	if topicCtrlThrottle != "" {
-		log.Infof("configure mqtt route on throttle command")
+		zap.S().Info("configure mqtt route on throttle command")
 		client.Subscribe(topicCtrlThrottle, byte(mqttQos), func(client mqtt.Client, message mqtt.Message) {
 			onThrottleCommand(gtw, message)
 		})
@@ -148,7 +163,7 @@ func main() {
 
 	err = gtw.Start()
 	if err != nil {
-		log.Fatalf("unable to start service: %v", err)
+		zap.S().Fatalf("unable to start service: %v", err)
 	}
 
 }
@@ -157,7 +172,7 @@ func onSteeringCommand(c *gateway.Gateway, message mqtt.Message) {
 	var steeringMsg events2.SteeringMessage
 	err := proto.Unmarshal(message.Payload(), &steeringMsg)
 	if err != nil {
-		log.Errorf("unable to unmarshal steering msg: %v", err)
+		zap.S().Errorf("unable to unmarshal steering msg: %v", err)
 		return
 	}
 	c.WriteSteering(&steeringMsg)
@@ -167,7 +182,7 @@ func onThrottleCommand(c *gateway.Gateway, message mqtt.Message) {
 	var throttleMsg events2.ThrottleMessage
 	err := proto.Unmarshal(message.Payload(), &throttleMsg)
 	if err != nil {
-		log.Errorf("unable to unmarshal throttle msg: %v", err)
+		zap.S().Errorf("unable to unmarshal throttle msg: %v", err)
 		return
 	}
 	c.WriteThrottle(&throttleMsg)
