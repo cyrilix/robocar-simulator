@@ -284,3 +284,4 @@ local.properties
 
 ./rc-*
 rc-simulator
+rc-simulator.*
