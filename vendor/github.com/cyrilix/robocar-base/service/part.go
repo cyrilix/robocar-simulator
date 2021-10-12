@@ -3,21 +3,21 @@ package service
 import (
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"log"
+	"go.uber.org/zap"
 )
 
 func StopService(name string, client mqtt.Client, topics ...string) {
-	log.Printf("Stop %s service", name)
+	zap.S().Infof("Stop %s service", name)
 	token := client.Unsubscribe(topics...)
 	token.Wait()
 	if token.Error() != nil {
-		log.Printf("unable to unsubscribe service: %v", token.Error())
+		zap.S().Errorf("unable to unsubscribe service: %v", token.Error())
 	}
 	client.Disconnect(50)
 }
 
 func RegisterCallback(client mqtt.Client, topic string, callback mqtt.MessageHandler) error {
-	log.Printf("Register callback on topic %v", topic)
+	zap.S().Infof("Register callback on topic %v", topic)
 	token := client.Subscribe(topic, 0, callback)
 	token.Wait()
 	if token.Error() != nil {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/cyrilix/robocar-base/service"
 	MQTT "github.com/eclipse/paho.mqtt.golang"
-	"log"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
 	"strconv"
@@ -25,7 +25,7 @@ func SetIntDefaultValueFromEnv(value *int, key string, defaultValue int) error {
 		sVal = os.Getenv(key)
 		val, err := strconv.Atoi(sVal)
 		if err != nil {
-			log.Printf("unable to convert string to int: %v", err)
+			zap.S().Errorf("unable to convert string to int: %v", err)
 			return err
 		}
 		*value = val
@@ -40,7 +40,7 @@ func SetFloat64DefaultValueFromEnv(value *float64, key string, defaultValue floa
 		sVal = os.Getenv(key)
 		val, err := strconv.ParseFloat(sVal, 64)
 		if err != nil {
-			log.Printf("unable to convert string to float: %v", err)
+			zap.S().Errorf("unable to convert string to float: %v", err)
 			return err
 		}
 		*value = val
@@ -81,7 +81,7 @@ func InitIntFlag(key string, defValue int) int {
 	var value int
 	err := SetIntDefaultValueFromEnv(&value, key, defValue)
 	if err != nil {
-		log.Panicf("invalid int value: %v", err)
+		zap.S().Panicf("invalid int value: %v", err)
 	}
 	return value
 }
@@ -90,7 +90,7 @@ func InitFloat64Flag(key string, defValue float64) float64 {
 	var value float64
 	err := SetFloat64DefaultValueFromEnv(&value, key, defValue)
 	if err != nil {
-		log.Panicf("invalid value: %v", err)
+		zap.S().Panicf("invalid value: %v", err)
 	}
 	return value
 }
@@ -106,8 +106,8 @@ func Connect(uri, username, password, clientId string) (MQTT.Client, error) {
 	opts.SetDefaultPublishHandler(
 		//define a function for the default message handler
 		func(client MQTT.Client, msg MQTT.Message) {
-			fmt.Printf("TOPIC: %s\n", msg.Topic())
-			fmt.Printf("MSG: %s\n", msg.Payload())
+			zap.S().Infof("TOPIC: %s", msg.Topic())
+			zap.S().Infof("MSG: %s", msg.Payload())
 		})
 
 	//create and start a client using the above ClientOptions
