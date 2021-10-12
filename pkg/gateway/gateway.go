@@ -43,11 +43,11 @@ func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.
 		throttleSubscribers:  make(map[chan<- *events.ThrottleMessage]interface{}),
 		telemetrySubscribers: make(map[chan *simulator.TelemetryMsg]interface{}),
 		carSubscribers:       make(map[chan *simulator.Msg]interface{}),
-		racerSubscribers:       make(map[chan *simulator.Msg]interface{}),
-		cameraSubscribers:       make(map[chan *simulator.Msg]interface{}),
+		racerSubscribers:     make(map[chan *simulator.Msg]interface{}),
+		cameraSubscribers:    make(map[chan *simulator.Msg]interface{}),
 		carConfig:            car,
 		racer:                racer,
-		cameraConfig:            camera,
+		cameraConfig:         camera,
 	}
 }
 
@@ -72,11 +72,11 @@ type Gateway struct {
 
 	telemetrySubscribers map[chan *simulator.TelemetryMsg]interface{}
 	carSubscribers       map[chan *simulator.Msg]interface{}
-	racerSubscribers       map[chan *simulator.Msg]interface{}
-	cameraSubscribers       map[chan *simulator.Msg]interface{}
+	racerSubscribers     map[chan *simulator.Msg]interface{}
+	cameraSubscribers    map[chan *simulator.Msg]interface{}
 
-	carConfig *simulator.CarConfigMsg
-	racer     *simulator.RacerBioMsg
+	carConfig    *simulator.CarConfigMsg
+	racer        *simulator.RacerBioMsg
 	cameraConfig *simulator.CamConfigMsg
 }
 
@@ -87,13 +87,13 @@ func (g *Gateway) Start() error {
 
 	go g.run()
 
-	err := g.writeCarConfig()
-	if err != nil {
-		return fmt.Errorf("unable to configure car to server: %v", err)
-	}
-	err = g.writeRacerConfig()
+	err := g.writeRacerConfig()
 	if err != nil {
 		return fmt.Errorf("unable to configure racer to server: %v", err)
+	}
+	err = g.writeCarConfig()
+	if err != nil {
+		return fmt.Errorf("unable to configure car to server: %v", err)
 	}
 	err = g.writeCameraConfig()
 	if err != nil {
@@ -398,7 +398,7 @@ func (g *Gateway) writeCommand(content []byte) error {
 		g.log.Errorf("unable to connect to simulator to send control command: %v", err)
 		return nil
 	}
-	log.Debugf("write command to simulator: %v", g.lastControl)
+	log.Debugf("write command to simulator: %v", string(content))
 	w := bufio.NewWriter(g.conn)
 
 	_, err := w.Write(append(content, '\n'))
@@ -458,6 +458,7 @@ func (g *Gateway) writeCarConfig() error {
 
 	msg := <-carChan
 	g.log.Infof("Car loaded: %v", msg)
+	time.Sleep(250 * time.Millisecond)
 	return nil
 }
 
@@ -477,10 +478,10 @@ func (g *Gateway) writeRacerConfig() error {
 		return fmt.Errorf("unable to send racer config to simulator: %v", err)
 	}
 
-	select{
-		case msg := <-racerChan:
-			g.log.Infof("Racer loaded: %v", msg)
-		case <- time.Tick(25 * time.Millisecond):
+	select {
+	case msg := <-racerChan:
+		g.log.Infof("Racer loaded: %v", msg)
+	case <-time.Tick(250 * time.Millisecond):
 	}
 	return nil
 }
@@ -501,10 +502,10 @@ func (g *Gateway) writeCameraConfig() error {
 		return fmt.Errorf("unable to send camera config to simulator: %v", err)
 	}
 
-	select{
+	select {
 	case msg := <-cameraChan:
 		g.log.Infof("Camera configured: %v", msg)
-	case <- time.Tick(25 * time.Millisecond):
+	case <-time.Tick(250 * time.Millisecond):
 	}
 	return nil
 }

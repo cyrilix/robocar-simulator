@@ -63,7 +63,7 @@ func main() {
 	flag.Float64Var(&cameraFishEyeX, "camera-fish-eye-x", 0.4, "")
 	flag.Float64Var(&cameraFishEyeY, "camera-fish-eye-y", 0.7, "")
 	flag.IntVar(&cameraImgW, "camera-img-w", 160, "image width")
-	flag.IntVar(&cameraImgH, "camera-img-h", 120, "image height")
+	flag.IntVar(&cameraImgH, "camera-img-h", 128, "image height")
 	flag.IntVar(&cameraImgD, "camera-img-d", 3, "Image depth")
 	flag.StringVar(&cameraImgEnc, "camera-img-enc", string(simulator.CameraImageEncJpeg), "")
 	flag.Float64Var(&cameraOffsetX, "camera-offset-x", 0, "moves camera left/right")
@@ -107,16 +107,16 @@ func main() {
 	camera := simulator.CamConfigMsg{
 		MsgType:  simulator.MsgTypeCameraConfig,
 		Fov:      strconv.Itoa(cameraFov),
-		FishEyeX: fmt.Sprintf("%f", cameraFishEyeX),
-		FishEyeY: fmt.Sprintf("%f",cameraFishEyeY),
+		FishEyeX: fmt.Sprintf("%.2f", cameraFishEyeX),
+		FishEyeY: fmt.Sprintf("%.2f",cameraFishEyeY),
 		ImgW:     strconv.Itoa(cameraImgW),
 		ImgH:     strconv.Itoa(cameraImgH),
 		ImgD:     strconv.Itoa(cameraImgD),
 		ImgEnc:   simulator.CameraImageEnc(cameraImgEnc),
-		OffsetX:  fmt.Sprintf("%f",cameraOffsetX),
-		OffsetY: fmt.Sprintf("%f", cameraOffsetY),
-		OffsetZ: fmt.Sprintf("%f", cameraOffsetZ),
-		RotX:    fmt.Sprintf("%f", cameraOffsetZ),
+		OffsetX:  fmt.Sprintf("%.2f",cameraOffsetX),
+		OffsetY: fmt.Sprintf("%.2f", cameraOffsetY),
+		OffsetZ: fmt.Sprintf("%.2f", cameraOffsetZ),
+		RotX:    fmt.Sprintf("%.2f", cameraRotX),
 	}
 	gtw := gateway.New(address, &carConfig, &racer, &camera)
 	defer gtw.Stop()

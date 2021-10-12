@@ -104,7 +104,7 @@ type CamConfigMsg struct {
 	MsgType  MsgType        `json:"msg_type"`
 	Fov      string         `json:"fov"`
 	FishEyeX string         `json:"fish_eye_x"`
-	FishEyeY string         `json:"fish_eye_Y"`
+	FishEyeY string         `json:"fish_eye_y"`
 	ImgW     string         `json:"img_w"`
 	ImgH     string         `json:"img_h"`
 	ImgD     string         `json:"img_d"`
