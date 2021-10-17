@@ -113,4 +113,6 @@ type CamConfigMsg struct {
 	OffsetY  string         `json:"offset_y"`
 	OffsetZ  string         `json:"offset_z"`
 	RotX     string         `json:"rot_x"`
+	RotY     string         `json:"rot_y"`
+	RotZ     string         `json:"rot_z"`
 }

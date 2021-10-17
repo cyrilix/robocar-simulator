@@ -58,7 +58,7 @@ func main() {
 
 	var cameraFov, cameraImgW, cameraImgH, cameraImgD int
 	var cameraFishEyeX, cameraFishEyeY float64
-	var cameraOffsetX, cameraOffsetY, cameraOffsetZ, cameraRotX float64
+	var cameraOffsetX, cameraOffsetY, cameraOffsetZ, cameraRotX, cameraRotY, cameraRotZ float64
 	var cameraImgEnc string
 	flag.IntVar(&cameraFov, "camera-fov", 90, "")
 	flag.Float64Var(&cameraFishEyeX, "camera-fish-eye-x", 0.4, "")
@@ -70,7 +70,9 @@ func main() {
 	flag.Float64Var(&cameraOffsetX, "camera-offset-x", 0, "moves camera left/right")
 	flag.Float64Var(&cameraOffsetY, "camera-offset-y", 1.120395, "moves camera up/down")
 	flag.Float64Var(&cameraOffsetZ, "camera-offset-z", 0.5528488, "moves camera forward/back")
-	flag.Float64Var(&cameraRotX, "camera-rot-x", 15.0, "rotate the camera")
+	flag.Float64Var(&cameraRotX, "camera-rot-x", 15.0, "rotate the camera around x-axis")
+	flag.Float64Var(&cameraRotY, "camera-rot-y", 0.0, "rotate the camera around y-axis")
+	flag.Float64Var(&cameraRotZ, "camera-rot-z", 0.0, "rotate the camera around z-axis")
 
 	flag.Parse()
 	if len(os.Args) <= 1 {
@@ -132,8 +134,13 @@ func main() {
 		OffsetY: fmt.Sprintf("%.2f", cameraOffsetY),
 		OffsetZ: fmt.Sprintf("%.2f", cameraOffsetZ),
 		RotX:    fmt.Sprintf("%.2f", cameraRotX),
+		RotY:    fmt.Sprintf("%.2f", cameraRotY),
+		RotZ:    fmt.Sprintf("%.2f", cameraRotZ),
 	}
-	gtw := gateway.New(address, &carConfig, &racer, &camera)
+	gtw, err := gateway.New(address, &carConfig, &racer, &camera)
+	if err != nil {
+		zap.S().Fatalf("unable to init gateway: %v", err)
+	}
 	defer gtw.Stop()
 
 	msgPub := events.NewMsgPublisher(

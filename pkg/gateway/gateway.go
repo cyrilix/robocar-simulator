@@ -2,15 +2,20 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/avast/retry-go"
 	"github.com/cyrilix/robocar-protobuf/go/events"
 	"github.com/cyrilix/robocar-simulator/pkg/simulator"
+	"github.com/disintegration/imaging"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"go.uber.org/zap"
+	"image"
+	"image/jpeg"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -31,9 +36,18 @@ type ThrottleSource interface {
 	SubscribeThrottle() <-chan *events.ThrottleMessage
 }
 
-func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.RacerBioMsg, camera *simulator.CamConfigMsg) *Gateway {
+func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.RacerBioMsg, camera *simulator.CamConfigMsg) (*Gateway, error) {
 	l := zap.S().With("simulator", addressSimulator)
 	l.Info("run gateway from simulator")
+
+	imgHeight, err := strconv.Atoi(camera.ImgH)
+	if err != nil {
+		return nil, fmt.Errorf("invalid camera configuration, height should be a number: %w", err)
+	}
+	imgWidth, err := strconv.Atoi(camera.ImgW)
+	if err != nil {
+		return nil, fmt.Errorf("invalid camera configuration, width should be a number: %w", err)
+	}
 
 	return &Gateway{
 		address:              addressSimulator,
@@ -46,9 +60,11 @@ func New(addressSimulator string, car *simulator.CarConfigMsg, racer *simulator.
 		racerSubscribers:     make(map[chan *simulator.Msg]interface{}),
 		cameraSubscribers:    make(map[chan *simulator.Msg]interface{}),
 		carConfig:            car,
+		imgWidth:             imgWidth,
+		imgHeight:            imgHeight,
 		racer:                racer,
 		cameraConfig:         camera,
-	}
+	}, nil
 }
 
 // Gateway is Simulator interface to events gateway frames into events topicFrame
@@ -76,34 +92,46 @@ type Gateway struct {
 	cameraSubscribers    map[chan *simulator.Msg]interface{}
 
 	carConfig    *simulator.CarConfigMsg
+	imgHeight    int
+	imgWidth     int
 	racer        *simulator.RacerBioMsg
 	cameraConfig *simulator.CamConfigMsg
+
 }
 
 func (g *Gateway) Start() error {
 	g.log.Info("connect to simulator")
 	g.cancel = make(chan interface{})
-	msgChan := g.subscribeTelemetryEvents()
 
 	go g.run()
+
 
 	err := g.writeRacerConfig()
 	if err != nil {
 		return fmt.Errorf("unable to configure racer to server: %v", err)
 	}
-	err = g.writeCarConfig()
-	if err != nil {
-		return fmt.Errorf("unable to configure car to server: %v", err)
-	}
+
 	err = g.writeCameraConfig()
 	if err != nil {
 		return fmt.Errorf("unable to configure camera to server: %v", err)
 	}
 
+
+	err = g.writeCarConfig()
+	if err != nil {
+		return fmt.Errorf("unable to configure car to server: %v", err)
+	}
+
+	msgChan := g.subscribeTelemetryEvents()
 	for {
 		select {
 		case msg := <-msgChan:
-			fr := g.publishFrame(msg)
+			g.log.Debug("try to publish frame")
+			fr, err := g.publishFrame(msg)
+			if err != nil {
+				zap.S().Errorf("unable to publish frame, ignore event %v: %v", msg, err)
+			}
+			g.log.Debugf("frame published: %v", fr)
 			go g.publishInputSteering(msg, fr)
 			go g.publishInputThrottle(msg, fr)
 		case <-g.cancel:
@@ -195,12 +223,20 @@ func (g *Gateway) listen() error {
 		err = json.Unmarshal(rawLine, &msg)
 		if err != nil {
 			g.log.Errorf("unable to unmarshal simulator msg '%v': %v", string(rawLine), err)
+			continue
 		}
 
+		g.log.Debugf("new message of type %v", string(msg.MsgType))
 		switch msg.MsgType {
+		case "":
+			g.log.Debug("ping")
 		case simulator.MsgTypeTelemetry:
 			g.broadcastTelemetryMsg(rawLine)
 		case simulator.MsgTypeCarLoaded:
+			g.log.Debugf("car loaded: %v",string(rawLine))
+			if err := g.writeCarConfig(); err != nil{
+				zap.S().Errorf("unable to send car config: %v", err)
+			}
 			g.broadcastCarMsg(rawLine)
 		case simulator.MsgTypeRacerInfo:
 			g.broadcastRacerMsg(rawLine)
@@ -211,50 +247,55 @@ func (g *Gateway) listen() error {
 }
 
 func (g *Gateway) broadcastTelemetryMsg(rawLine []byte) {
+	var tMsg simulator.TelemetryMsg
+	err := json.Unmarshal(rawLine, &tMsg)
+	if err != nil {
+		g.log.Errorf("unable to unmarshal telemetry simulator msg '%v': %v", string(rawLine), err)
+		return
+	}
+	g.log.Debugf("broadcast %d telemetry'", len(g.telemetrySubscribers))
 	for c := range g.telemetrySubscribers {
-
-		var tMsg simulator.TelemetryMsg
-		err := json.Unmarshal(rawLine, &tMsg)
-		if err != nil {
-			g.log.Errorf("unable to unmarshal telemetry simulator msg '%v': %v", string(rawLine), err)
-		}
+		g.log.Debugf("broadcast telemetry ")
 		c <- &tMsg
 	}
 }
 
 func (g *Gateway) broadcastCarMsg(rawLine []byte) {
+	var tMsg simulator.Msg
+	err := json.Unmarshal(rawLine, &tMsg)
+	if err != nil {
+		g.log.Errorf("unable to unmarshal car simulator msg '%v': %v", string(rawLine), err)
+		return
+	}
 	for c := range g.carSubscribers {
-		var tMsg simulator.Msg
-		err := json.Unmarshal(rawLine, &tMsg)
-		if err != nil {
-			g.log.Errorf("unable to unmarshal car simulator msg '%v': %v", string(rawLine), err)
-		}
 		c <- &tMsg
 	}
 }
 
 func (g *Gateway) broadcastRacerMsg(rawLine []byte) {
+	var tMsg simulator.Msg
+	err := json.Unmarshal(rawLine, &tMsg)
+	if err != nil {
+		g.log.Errorf("unable to unmarshal racer simulator msg '%v': %v", string(rawLine), err)
+		return
+	}
 	for c := range g.racerSubscribers {
-		var tMsg simulator.Msg
-		err := json.Unmarshal(rawLine, &tMsg)
-		if err != nil {
-			g.log.Errorf("unable to unmarshal racer simulator msg '%v': %v", string(rawLine), err)
-		}
 		c <- &tMsg
 	}
 }
 func (g *Gateway) broadcastCameraMsg(rawLine []byte) {
+	var tMsg simulator.Msg
+	err := json.Unmarshal(rawLine, &tMsg)
+	if err != nil {
+		g.log.Errorf("unable to unmarshal camera simulator msg '%v': %v", string(rawLine), err)
+		return
+	}
 	for c := range g.cameraSubscribers {
-		var tMsg simulator.Msg
-		err := json.Unmarshal(rawLine, &tMsg)
-		if err != nil {
-			g.log.Errorf("unable to unmarshal camera simulator msg '%v': %v", string(rawLine), err)
-		}
 		c <- &tMsg
 	}
 }
 
-func (g *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) *events.FrameRef {
+func (g *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) (*events.FrameRef, error) {
 	now := time.Now()
 	frameRef := &events.FrameRef{
 		Name: "gateway",
@@ -264,17 +305,32 @@ func (g *Gateway) publishFrame(msgSim *simulator.TelemetryMsg) *events.FrameRef 
 			Nanos:   int32(now.Nanosecond()),
 		},
 	}
+
 	msg := &events.FrameMessage{
 		Id:    frameRef,
 		Frame: msgSim.Image,
 	}
 
-	g.log.Debugf("events frame '%v/%v'", msg.Id.Name, msg.Id.Id)
+	img, _, err := image.Decode(bytes.NewReader(msgSim.Image))
+	if err != nil {
+		return nil, fmt.Errorf("bad image, skip simulator event: %w", err)
+	}
+	if img.Bounds().Dy() != g.imgHeight || img.Bounds().Dx() != g.imgWidth {
+		zap.S().Debugf("resize simulator image from (%vx%v) -> (%dx%d)", img.Bounds().Dx(), img.Bounds().Dy(), g.imgWidth, g.imgHeight)
+		img = imaging.Resize(img, g.imgWidth, g.imgHeight, imaging.NearestNeighbor)
+		var imgBuf bytes.Buffer
+		err = jpeg.Encode(&imgBuf, img, nil)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode to peg resized image: %w", err)
+		}
+		msg.Frame = imgBuf.Bytes()
+	}
 
+	g.log.Debugf("events frame '%v/%v'", msg.Id.Name, msg.Id.Id)
 	for fs := range g.frameSubscribers {
 		fs <- msg
 	}
-	return frameRef
+	return frameRef, nil
 }
 
 func (g *Gateway) publishInputSteering(msgSim *simulator.TelemetryMsg, frameRef *events.FrameRef) {
@@ -374,6 +430,7 @@ func (g *Gateway) WriteSteering(message *events.SteeringMessage) {
 	g.initLastControlMsg()
 
 	g.lastControl.Steering = fmt.Sprintf("%.2f", message.Steering)
+	zap.S().Debugf("steering updated: %v", g.lastControl.Steering)
 	g.writeControlCommandToSimulator()
 }
 
@@ -401,7 +458,7 @@ func (g *Gateway) writeCommand(content []byte) error {
 	g.log.Debugf("write command to simulator: %v", string(content))
 	w := bufio.NewWriter(g.conn)
 
-	_, err := w.Write(append(content, '\n'))
+	_, err := w.Write(content)
 	if err != nil {
 		return fmt.Errorf("unable to write control msg \"%#v\" to simulator: %v", g.lastControl, err)
 	}
@@ -425,6 +482,7 @@ func (g *Gateway) WriteThrottle(message *events.ThrottleMessage) {
 		g.lastControl.Brake = fmt.Sprintf("%.2f", -1*message.Throttle)
 	}
 
+	zap.S().Debugf("throttle updated: %v, brake: %v", g.lastControl.Throttle, g.lastControl.Brake)
 	g.writeControlCommandToSimulator()
 }
 
@@ -456,9 +514,13 @@ func (g *Gateway) writeCarConfig() error {
 		return fmt.Errorf("unable to send car config to simulator: %v", err)
 	}
 
-	msg := <-carChan
-	g.log.Infof("Car loaded: %v", msg)
-	time.Sleep(250 * time.Millisecond)
+	select {
+	case msg := <-carChan:
+		g.log.Infof("Car loaded: %v", msg)
+	case <-time.Tick(250 * time.Millisecond):
+		g.log.Info("no response after car loading")
+	}
+
 	return nil
 }
 
@@ -482,6 +544,7 @@ func (g *Gateway) writeRacerConfig() error {
 	case msg := <-racerChan:
 		g.log.Infof("Racer loaded: %v", msg)
 	case <-time.Tick(250 * time.Millisecond):
+		g.log.Info("no response after racer loading")
 	}
 	return nil
 }
@@ -506,6 +569,7 @@ func (g *Gateway) writeCameraConfig() error {
 	case msg := <-cameraChan:
 		g.log.Infof("Camera configured: %v", msg)
 	case <-time.Tick(250 * time.Millisecond):
+		g.log.Info("no response after camera loading")
 	}
 	return nil
 }

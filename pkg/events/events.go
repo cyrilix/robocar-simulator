@@ -5,9 +5,9 @@ import (
 	"github.com/cyrilix/robocar-simulator/pkg/gateway"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/golang/protobuf/proto"
+	"go.uber.org/zap"
 	"sync"
 	"time"
-	"go.uber.org/zap"
 )
 
 func NewMsgPublisher(srcEvents gateway.SimulatorSource, p Publisher, topicFrame, topicSteering, topicThrottle string) *MsgPublisher {
@@ -113,6 +113,7 @@ func (m *MsgPublisher) listenFrame() {
 		msg := <-msgChan
 		if msg == nil {
 			// channel closed
+			logr.Info("received empty message, channel closed")
 			break
 		}
 		logr.Debugf("new frame %v", msg.Id)

@@ -40,7 +40,7 @@ func TestGateway_Start(t *testing.T) {
 		OffsetZ:  "0",
 		RotX:     "0",
 	}
-	gw := New(simulatorMock.Addr(),
+	gw, err := New(simulatorMock.Addr(),
 		&carConfig,
 		&simulator.RacerBioMsg{},
 		&camConfig,
@@ -130,10 +130,13 @@ func TestGateway_WriteSteering(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr(),
+	gw, err := New(simulatorMock.Addr(),
 		&simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
 		&simulator.RacerBioMsg{},
-		&simulator.CamConfigMsg{})
+		&simulator.CamConfigMsg{
+		ImgH: "128",
+		ImgW: "160",
+		})
 	if err != nil {
 		t.Fatalf("unable to init simulator gateway: %v", err)
 	}
@@ -254,10 +257,16 @@ func TestGateway_WriteThrottle(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr(), &simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
+	gw, err := New(simulatorMock.Addr(), &simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
 		&simulator.RacerBioMsg{},
-		&simulator.CamConfigMsg{})
+		&simulator.CamConfigMsg{
+			ImgH: "128",
+			ImgW: "160",
+		})
 
+	if err != nil {
+		t.Fatalf("unable to init simulator gateway: %v", err)
+	}
 	//go gw.Start()
 
 	//<- simulatorMock.NotifyCar()

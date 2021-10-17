@@ -25,11 +25,14 @@ func TestGateway_ListenEvents(t *testing.T) {
 		}
 	}()
 
-	gw := New(simulatorMock.Addr(),
+	gw, err := New(simulatorMock.Addr(),
 		&simulator.CarConfigMsg{MsgType: simulator.MsgTypeCarConfig},
 		&simulator.RacerBioMsg{},
 		&simulator.CamConfigMsg{},
 	)
+	if err != nil {
+		t.Fatalf("unable to init test: %v", err)
+	}
 	go func() {
 		err := gw.Start()
 		if err != nil {
