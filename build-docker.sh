@@ -26,11 +26,12 @@ image_build(){
 
 
   printf "\n\nBuild go binary %s\n\n" "${BINARY}.${binary_suffix}"
-  CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} GOARM=${GOARM} go build -mod vendor -a ${GOTAGS} -o "${BINARY}.${binary_suffix}" ./cmd/${BINARY}/
+  mkdir -p build
+  CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} GOARM=${GOARM} go build -mod vendor -a ${GOTAGS} -o "build/${BINARY}.${binary_suffix}" ./cmd/${BINARY}/
 
   buildah --os "$GOOS" --arch "$GOARCH" $VARIANT  --name "$containerName" from gcr.io/distroless/static
   buildah config --user 1234 "$containerName"
-  buildah copy "$containerName" "${BINARY}.${binary_suffix}" /go/bin/$BINARY
+  buildah copy "$containerName" "build/${BINARY}.${binary_suffix}" /go/bin/$BINARY
   buildah config --entrypoint '["/go/bin/'$BINARY'"]' "${containerName}"
 
   buildah commit --rm --manifest $IMAGE_NAME "${containerName}" "${containerName}"
