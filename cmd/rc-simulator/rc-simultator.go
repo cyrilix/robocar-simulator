@@ -23,7 +23,6 @@ func main() {
 	var mqttBroker, username, password, clientId, topicFrame, topicSteering, topicThrottle string
 	var topicCtrlSteering, topicCtrlThrottle string
 	var address string
-	var debug bool
 
 	mqttQos := cli.InitIntFlag("MQTT_QOS", 0)
 	_, mqttRetain := os.LookupEnv("MQTT_RETAIN")
@@ -36,7 +35,6 @@ func main() {
 	flag.StringVar(&topicCtrlSteering, "topic-steering-ctrl", os.Getenv("MQTT_TOPIC_STEERING_CTRL"), "Mqtt topic to send steering instructions, use MQTT_TOPIC_STEERING_CTRL if args not set")
 	flag.StringVar(&topicCtrlThrottle, "topic-throttle-ctrl", os.Getenv("MQTT_TOPIC_THROTTLE_CTRL"), "Mqtt topic to send throttle instructions, use MQTT_TOPIC_THROTTLE_CTRL if args not set")
 	flag.StringVar(&address, "simulator-address", "127.0.0.1:9091", "Simulator address")
-	flag.BoolVar(&debug, "debug", false, "Debug logs")
 
 	var carName, carStyle, carColor string
 	var carFontSize int
@@ -50,11 +48,11 @@ func main() {
 	flag.StringVar(&carColor, "car-color", "0,0,0", "Color car as rgb value")
 	flag.IntVar(&carFontSize, "car-font-size", 0, "Car font size")
 
-	var racerName, racerBio, racerCountry,  racerGuid string
+	var racerName, racerBio, racerCountry, racerGuid string
 	flag.StringVar(&racerName, "racer-name", "", "")
-	flag.StringVar(&racerBio, "racer-bio",      "", "")
-	flag.StringVar(&racerCountry, "racer-country",   "", "")
-	flag.StringVar(&racerGuid, "racer-guid",     "", "")
+	flag.StringVar(&racerBio, "racer-bio", "", "")
+	flag.StringVar(&racerCountry, "racer-country", "", "")
+	flag.StringVar(&racerGuid, "racer-guid", "", "")
 
 	var cameraFov, cameraImgW, cameraImgH, cameraImgD int
 	var cameraFishEyeX, cameraFishEyeY float64
@@ -74,18 +72,17 @@ func main() {
 	flag.Float64Var(&cameraRotY, "camera-rot-y", 0.0, "rotate the camera around y-axis")
 	flag.Float64Var(&cameraRotZ, "camera-rot-z", 0.0, "rotate the camera around z-axis")
 
+	logLevel := zap.LevelFlag("log", zap.InfoLevel, "log level")
+
 	flag.Parse()
+
 	if len(os.Args) <= 1 {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
 	config := zap.NewDevelopmentConfig()
-	if debug {
-		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	} else {
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
+	config.Level = zap.NewAtomicLevelAt(*logLevel)
 	lgr, err := config.Build()
 	if err != nil {
 		log.Fatalf("unable to init logger: %v", err)
@@ -125,17 +122,17 @@ func main() {
 		MsgType:  simulator.MsgTypeCameraConfig,
 		Fov:      strconv.Itoa(cameraFov),
 		FishEyeX: fmt.Sprintf("%.2f", cameraFishEyeX),
-		FishEyeY: fmt.Sprintf("%.2f",cameraFishEyeY),
+		FishEyeY: fmt.Sprintf("%.2f", cameraFishEyeY),
 		ImgW:     strconv.Itoa(cameraImgW),
 		ImgH:     strconv.Itoa(cameraImgH),
 		ImgD:     strconv.Itoa(cameraImgD),
 		ImgEnc:   simulator.CameraImageEnc(cameraImgEnc),
-		OffsetX:  fmt.Sprintf("%.2f",cameraOffsetX),
-		OffsetY: fmt.Sprintf("%.2f", cameraOffsetY),
-		OffsetZ: fmt.Sprintf("%.2f", cameraOffsetZ),
-		RotX:    fmt.Sprintf("%.2f", cameraRotX),
-		RotY:    fmt.Sprintf("%.2f", cameraRotY),
-		RotZ:    fmt.Sprintf("%.2f", cameraRotZ),
+		OffsetX:  fmt.Sprintf("%.2f", cameraOffsetX),
+		OffsetY:  fmt.Sprintf("%.2f", cameraOffsetY),
+		OffsetZ:  fmt.Sprintf("%.2f", cameraOffsetZ),
+		RotX:     fmt.Sprintf("%.2f", cameraRotX),
+		RotY:     fmt.Sprintf("%.2f", cameraRotY),
+		RotZ:     fmt.Sprintf("%.2f", cameraRotZ),
 	}
 	gtw, err := gateway.New(address, &carConfig, &racer, &camera)
 	if err != nil {
