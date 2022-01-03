@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"github.com/cyrilix/robocar-simulator/pkg/gateway"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"sync"
 	"time"
 )

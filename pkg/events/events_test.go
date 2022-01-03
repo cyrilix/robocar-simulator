@@ -3,8 +3,8 @@ package events
 import (
 	"fmt"
 	"github.com/cyrilix/robocar-protobuf/go/events"
-	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/protobuf/proto"
 	"testing"
 	"time"
 )

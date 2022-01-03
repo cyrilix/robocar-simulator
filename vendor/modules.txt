@@ -1,11 +1,11 @@
 # github.com/avast/retry-go v3.0.0+incompatible
 ## explicit
 github.com/avast/retry-go
-# github.com/cyrilix/robocar-base v0.1.5
+# github.com/cyrilix/robocar-base v0.1.6
 ## explicit; go 1.17
 github.com/cyrilix/robocar-base/cli
 github.com/cyrilix/robocar-base/service
-# github.com/cyrilix/robocar-protobuf/go v1.0.3
+# github.com/cyrilix/robocar-protobuf/go v1.0.4
 ## explicit; go 1.17
 github.com/cyrilix/robocar-protobuf/go/events
 # github.com/disintegration/imaging v1.6.2
@@ -46,7 +46,7 @@ golang.org/x/image/tiff/lzw
 ## explicit; go 1.11
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
-# google.golang.org/protobuf v1.26.0
+# google.golang.org/protobuf v1.27.1
 ## explicit; go 1.9
 google.golang.org/protobuf/encoding/prototext
 google.golang.org/protobuf/encoding/protowire
