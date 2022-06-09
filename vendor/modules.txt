@@ -1,17 +1,17 @@
 # github.com/avast/retry-go v3.0.0+incompatible
 ## explicit
 github.com/avast/retry-go
-# github.com/cyrilix/robocar-base v0.1.6
-## explicit; go 1.17
+# github.com/cyrilix/robocar-base v0.1.7
+## explicit; go 1.18
 github.com/cyrilix/robocar-base/cli
 github.com/cyrilix/robocar-base/service
-# github.com/cyrilix/robocar-protobuf/go v1.0.4
-## explicit; go 1.17
+# github.com/cyrilix/robocar-protobuf/go v1.0.5
+## explicit; go 1.18
 github.com/cyrilix/robocar-protobuf/go/events
 # github.com/disintegration/imaging v1.6.2
 ## explicit
 github.com/disintegration/imaging
-# github.com/eclipse/paho.mqtt.golang v1.3.5
+# github.com/eclipse/paho.mqtt.golang v1.4.1
 ## explicit; go 1.14
 github.com/eclipse/paho.mqtt.golang
 github.com/eclipse/paho.mqtt.golang/packets
@@ -28,7 +28,7 @@ go.uber.org/atomic
 # go.uber.org/multierr v1.6.0
 ## explicit; go 1.12
 go.uber.org/multierr
-# go.uber.org/zap v1.19.1
+# go.uber.org/zap v1.21.0
 ## explicit; go 1.13
 go.uber.org/zap
 go.uber.org/zap/buffer
@@ -46,8 +46,11 @@ golang.org/x/image/tiff/lzw
 ## explicit; go 1.11
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
-# google.golang.org/protobuf v1.27.1
-## explicit; go 1.9
+# golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+## explicit
+golang.org/x/sync/semaphore
+# google.golang.org/protobuf v1.28.0
+## explicit; go 1.11
 google.golang.org/protobuf/encoding/prototext
 google.golang.org/protobuf/encoding/protowire
 google.golang.org/protobuf/internal/descfmt
