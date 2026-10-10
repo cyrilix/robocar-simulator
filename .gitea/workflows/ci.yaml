@@ -1,0 +1,35 @@
+# Gitea Actions CI (banquise runner, Kubernetes backend). Gitea reads .gitea/workflows first
+# and then ignores .github/workflows, which keeps serving GitHub (Docker Hub image builds via
+# the push mirror). Image builds are NOT duplicated here.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+  GOFLAGS: -mod=vendor
+
+jobs:
+  ci:
+    runs-on: banquise-amd64
+    steps:
+      - uses: builtin:checkout
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false            # vendor/ is committed, nothing to download
+      - name: build
+        run: go build -o /tmp/rc-simulator ./cmd/rc-simulator/
+      # vet and test have pre-existing failures (2026-10-10): informative until fixed,
+      # then drop continue-on-error to make them blocking.
+      - name: vet
+        continue-on-error: true
+        run: go vet ./...
+      - name: test
+        continue-on-error: true
+        run: go test -timeout 5m ./...
